@@ -13,7 +13,7 @@ from hnet.models.config_hnet import (
 )
 from hnet.utils.tokenizers import ByteTokenizer
 
-
+# python generate.py --model-path /export/data2/jwesch/checkpoints/hnet_2stage_XL.pt --config-path configs/hnet_2stage_XL.json --max-tokens 1024 --top-p 1.0
 def load_from_pretrained(model_path: str, model_config_path: str):
     """Load model from pretrained checkpoint.
 
