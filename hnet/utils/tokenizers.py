@@ -8,7 +8,9 @@ class ByteTokenizer:
         self.eos_idx = 255
         self.dtype = np.uint8
 
-    def encode(self, seqs: list[str], add_bos: bool = False, add_eos: bool = False, **kwargs) -> list[dict[str, np.ndarray]]:
+    def encode(
+        self, seqs: list[str], add_bos: bool = False, add_eos: bool = False, **kwargs
+    ) -> list[dict[str, np.ndarray]]:
         total_outputs = []
         for text in seqs:
             text_byte = text.encode("utf-8")
@@ -28,4 +30,3 @@ class ByteTokenizer:
         if isinstance(tokens, np.ndarray):
             tokens = tokens.tolist()
         return bytearray(tokens).decode("utf-8", **kwargs)
-

@@ -1,17 +1,18 @@
-import numpy as np
-import json
-import torch
 import argparse
+import json
 import sys
+
+import torch
 from omegaconf import ListConfig
 
-from hnet.models.mixer_seq import HNetForCausalLM
 from hnet.models.config_hnet import (
     AttnConfig,
-    SSMConfig,
     HNetConfig,
+    SSMConfig,
 )
+from hnet.models.mixer_seq import HNetForCausalLM
 from hnet.utils.tokenizers import ByteTokenizer
+
 
 def load_from_pretrained(model_path: str, model_config_path: str):
     """Load model from pretrained checkpoint.
@@ -38,22 +39,22 @@ def load_from_pretrained(model_path: str, model_config_path: str):
     model.eval()
 
     # Load checkpoint
-    major, minor = map(int, torch.__version__.split('.')[:2])
+    major, minor = map(int, torch.__version__.split(".")[:2])
     if (major, minor) >= (2, 6):
         with torch.serialization.safe_globals([ListConfig]):
             checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     else:
         checkpoint = torch.load(model_path, map_location=device)
-    
+
     # Handle both training checkpoints and standalone model weights
-    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         # Training checkpoint format
-        state_dict = checkpoint['model_state_dict']
+        state_dict = checkpoint["model_state_dict"]
         print(f"Loaded training checkpoint from step {checkpoint.get('step', 'unknown')}")
     else:
         # Standalone model weights
         state_dict = checkpoint
-    
+
     model.load_state_dict(state_dict)
 
     return model
@@ -83,9 +84,7 @@ def generate(
 
     # Tokenize prompt
     encoded = tokenizer.encode([prompt], add_bos=True)[0]
-    input_ids = torch.tensor(
-        encoded["input_ids"], dtype=torch.long, device=device
-    ).unsqueeze(0)
+    input_ids = torch.tensor(encoded["input_ids"], dtype=torch.long, device=device).unsqueeze(0)
 
     inference_cache = model.allocate_inference_cache(
         1, input_ids.shape[1] + max_tokens, dtype=torch.bfloat16
@@ -101,9 +100,7 @@ def generate(
         # Apply top-p sampling
         if top_p < 1.0:
             sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-            cumulative_probs = torch.cumsum(
-                torch.softmax(sorted_logits, dim=-1), dim=-1
-            )
+            cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
 
             # Remove tokens with cumulative probability above the threshold
             sorted_indices_to_remove = cumulative_probs > top_p

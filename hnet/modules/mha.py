@@ -3,7 +3,6 @@
 import torch
 import torch.nn as nn
 from einops import rearrange
-
 from flash_attn import (
     flash_attn_kvpacked_func,
     flash_attn_qkvpacked_func,
@@ -30,9 +29,7 @@ class FlashCausalSelfAttention(nn.Module):
         window_size=(-1, -1),
     ):
         super().__init__()
-        assert (
-            flash_attn_varlen_qkvpacked_func is not None
-        ), "FlashAttention is not installed"
+        assert flash_attn_varlen_qkvpacked_func is not None, "FlashAttention is not installed"
         self.softmax_scale = softmax_scale
         self.window_size = window_size
 
@@ -91,9 +88,7 @@ class FlashCausalCrossAttention(nn.Module):
         window_size=(-1, -1),
     ):
         super().__init__()
-        assert (
-            flash_attn_varlen_kvpacked_func is not None
-        ), "FlashAttention is not installed"
+        assert flash_attn_varlen_kvpacked_func is not None, "FlashAttention is not installed"
         assert flash_attn_kvpacked_func is not None, "FlashAttention is not installed"
         self.softmax_scale = softmax_scale
         self.window_size = window_size
@@ -239,9 +234,7 @@ class CausalMHA(nn.Module):
             softmax_scale=softmax_scale,
             window_size=window_size,
         )
-        self.out_proj = nn.Linear(
-            d_model, d_model, bias=out_proj_bias, **factory_kwargs
-        )
+        self.out_proj = nn.Linear(d_model, d_model, bias=out_proj_bias, **factory_kwargs)
 
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None):
         dtype = self.out_proj.weight.dtype if dtype is None else dtype
@@ -258,9 +251,7 @@ class CausalMHA(nn.Module):
 
     def _update_kv_cache(self, kv, inference_params):
         """kv: (batch_size, seqlen, 2, nheads, head_dim) or (batch_size, 1, 2, nheads, head_dim)"""
-        assert (
-            self.layer_idx is not None
-        ), "Generation requires layer_idx in the constructor"
+        assert self.layer_idx is not None, "Generation requires layer_idx in the constructor"
         return _update_kv_cache(kv, inference_params, self.layer_idx)
 
     def _apply_rotary_update_kvcache_attention(self, q, kv, inference_params):
@@ -299,9 +290,7 @@ class CausalMHA(nn.Module):
             cache_seqlens=cache_seqlens,
             softmax_scale=self.softmax_scale,
             causal=True,
-            rotary_interleaved=(
-                self.rotary_emb.interleaved if self.rotary_emb_dim > 0 else False
-            ),
+            rotary_interleaved=(self.rotary_emb.interleaved if self.rotary_emb_dim > 0 else False),
             window_size=(self.window_size, -1),
         )
         return context
@@ -333,7 +322,7 @@ class CausalMHA(nn.Module):
                 cache_seqlens=cache_seqlens,
                 softmax_scale=self.inner_cross_attn.softmax_scale,
                 causal=True,
-                window_size=(self.window_size, -1)
+                window_size=(self.window_size, -1),
             )
 
     def forward(
@@ -372,14 +361,9 @@ class CausalMHA(nn.Module):
                 else inference_params.seqlen_offset
             )
         )
-        rotary_max_seqlen = (
-            inference_params.max_seqlen if inference_params is not None else None
-        )
 
         qkv = self.Wqkv(x)
-        qkv = rearrange(
-            qkv, "... (three h d) -> ... three h d", three=3, d=self.head_dim
-        )
+        qkv = rearrange(qkv, "... (three h d) -> ... three h d", three=3, d=self.head_dim)
         if (
             inference_params is None
             or inference_params.seqlen_offset == 0

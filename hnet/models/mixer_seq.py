@@ -3,14 +3,14 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
-
 from flash_attn.utils.generation import GenerationMixin
-
-from .hnet import HNet, HNetState
-from .config_hnet import HNetConfig
 
 from hnet.modules.dc import RoutingModuleOutput
 from hnet.modules.utils import apply_optimization_params
+
+from .config_hnet import HNetConfig
+from .hnet import HNet, HNetState
+
 
 @dataclass
 class CausalLMOutput:
@@ -51,7 +51,7 @@ class HNetForCausalLM(nn.Module, GenerationMixin):
     def tie_weights(self):
         if self.config.tie_embeddings:
             self.lm_head.weight = self.embeddings.weight
-    
+
     def init_weights(self, initializer_range: float = 0.02) -> None:
         """
         Initializes the weights of the model.
@@ -76,9 +76,7 @@ class HNetForCausalLM(nn.Module, GenerationMixin):
         self.backbone._apply_lr_multiplier(lr_multiplier)
 
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None, **kwargs):
-        return self.backbone.allocate_inference_cache(
-            batch_size, max_seqlen, dtype=dtype, **kwargs
-        )
+        return self.backbone.allocate_inference_cache(batch_size, max_seqlen, dtype=dtype, **kwargs)
 
     def forward(
         self,
@@ -102,9 +100,7 @@ class HNetForCausalLM(nn.Module, GenerationMixin):
 
         if mask is None:
             # Absent a mask, we assume we are running in packed mode
-            assert (
-                inference_params is None
-            ), "Inference params are not supported in packed mode"
+            assert inference_params is None, "Inference params are not supported in packed mode"
             hidden_states = hidden_states.flatten(0, 1)
             cu_seqlens = torch.arange(B + 1, device=hidden_states.device) * L
             max_seqlen = torch.tensor(L, dtype=torch.int, device=hidden_states.device)
@@ -144,9 +140,7 @@ class HNetForCausalLM(nn.Module, GenerationMixin):
 
         hidden_states = self.embeddings(input_ids)
 
-        hidden_states, bpred_output = self.backbone.step(
-            hidden_states, inference_params
-        )
+        hidden_states, bpred_output = self.backbone.step(hidden_states, inference_params)
         logits = self.lm_head(hidden_states)
 
         return CausalLMOutput(

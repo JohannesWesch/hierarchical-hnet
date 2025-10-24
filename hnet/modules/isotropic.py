@@ -1,20 +1,16 @@
-import re
 import copy
+import re
 from dataclasses import dataclass, field
-
-import optree
-
 from typing import Optional
 
+import optree
 import torch
 import torch.nn as nn
-
 from flash_attn.ops.triton.layer_norm import RMSNorm
 
+from hnet.models.config_hnet import HNetConfig
 from hnet.modules.block import create_block
 from hnet.modules.utils import get_seq_idx, get_stage_cfg
-
-from hnet.models.config_hnet import HNetConfig
 
 
 @dataclass
@@ -136,13 +132,9 @@ class Isotropic(nn.Module):
         ssm_mixer_kwargs = copy.deepcopy(mixer_kwargs)
         if mask is not None:
             packed = False
-            assert (
-                hidden_states.dim() == 3
-            ), "Hidden states must be (B, L, D) in unpacked mode"
+            assert hidden_states.dim() == 3, "Hidden states must be (B, L, D) in unpacked mode"
         else:
-            attn_mixer_kwargs.update(
-                {"cu_seqlens": cu_seqlens.int(), "max_seqlen": max_seqlen}
-            )
+            attn_mixer_kwargs.update({"cu_seqlens": cu_seqlens.int(), "max_seqlen": max_seqlen})
             ssm_mixer_kwargs.update(
                 {"seq_idx": get_seq_idx(cu_seqlens, device=hidden_states.device)}
             )
@@ -192,9 +184,7 @@ class Isotropic(nn.Module):
         """
         residual = None
         for layer in self.layers:
-            hidden_states, residual = layer.step(
-                hidden_states, inference_params, residual=residual
-            )
+            hidden_states, residual = layer.step(hidden_states, inference_params, residual=residual)
 
         hidden_states = self.rmsnorm(
             hidden_states, residual=residual, prenorm=False, residual_in_fp32=True

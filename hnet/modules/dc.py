@@ -3,9 +3,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from einops import repeat, rearrange
-
+from einops import rearrange, repeat
 from mamba_ssm.ops.triton.ssd_combined import mamba_chunk_scan_combined
 
 from hnet.modules.utils import get_seq_idx
@@ -61,9 +59,7 @@ class RoutingModule(nn.Module):
     def allocate_inference_cache(self, batch_size, max_seqlen, device, dtype=None):
         return RoutingModuleState(
             has_seen_tokens=torch.zeros(batch_size, device=device, dtype=torch.bool),
-            last_hidden_state=torch.zeros(
-                batch_size, self.d_model, device=device, dtype=dtype
-            ),
+            last_hidden_state=torch.zeros(batch_size, self.d_model, device=device, dtype=dtype),
         )
 
     def forward(self, hidden_states, cu_seqlens=None, mask=None, inference_params=None):
@@ -72,9 +68,7 @@ class RoutingModule(nn.Module):
         ), "Either mask or cu_seqlens must be provided"
 
         if inference_params is not None:
-            assert (
-                mask is not None
-            ), "Mask must be provided if inference_params is provided"
+            assert mask is not None, "Mask must be provided if inference_params is provided"
             assert (
                 ~inference_params.has_seen_tokens
             ).all(), "Cannot have seen tokens when inference_params is not provided"
@@ -110,17 +104,13 @@ class RoutingModule(nn.Module):
 
         if inference_params is not None:
             has_mask = mask.any(dim=-1)
-            inference_params.has_seen_tokens.copy_(
-                has_mask | inference_params.has_seen_tokens
-            )
+            inference_params.has_seen_tokens.copy_(has_mask | inference_params.has_seen_tokens)
             last_mask = torch.clamp(mask.sum(dim=-1) - 1, min=0)
             inference_params.last_hidden_state.copy_(
                 torch.where(
                     has_mask,
                     hidden_states[
-                        torch.arange(
-                            hidden_states.shape[0], device=hidden_states.device
-                        ),
+                        torch.arange(hidden_states.shape[0], device=hidden_states.device),
                         last_mask,
                     ],
                     inference_params.last_hidden_state,
@@ -154,9 +144,7 @@ class RoutingModule(nn.Module):
         )
         boundary_prob = torch.stack(((1 - boundary_prob), boundary_prob), dim=-1)
 
-        inference_params.has_seen_tokens.copy_(
-            torch.ones_like(inference_params.has_seen_tokens)
-        )
+        inference_params.has_seen_tokens.copy_(torch.ones_like(inference_params.has_seen_tokens))
         return RoutingModuleOutput(
             boundary_prob=boundary_prob,  # (B, 2)
             boundary_mask=boundary_prob[..., 1] > 0.5,  # (B,)
@@ -173,9 +161,7 @@ class ChunkLayer(nn.Module):
 
         if cu_seqlens is not None:
             next_hidden_states = hidden_states[boundary_mask]
-            next_cu_seqlens = F.pad(
-                boundary_mask.cumsum(dim=0)[cu_seqlens[1:] - 1], (1, 0)
-            )
+            next_cu_seqlens = F.pad(boundary_mask.cumsum(dim=0)[cu_seqlens[1:] - 1], (1, 0))
             next_max_seqlen = int((next_cu_seqlens[1:] - next_cu_seqlens[:-1]).max())
             next_mask = None
         else:
@@ -185,9 +171,7 @@ class ChunkLayer(nn.Module):
 
             device = hidden_states.device
             L = hidden_states.shape[1]
-            token_idx = (
-                torch.arange(L, device=device)[None, :] + (~boundary_mask).long() * L
-            )
+            token_idx = torch.arange(L, device=device)[None, :] + (~boundary_mask).long() * L
             seq_sorted_indices = torch.argsort(token_idx, dim=1)
 
             next_hidden_states = torch.gather(
@@ -198,10 +182,7 @@ class ChunkLayer(nn.Module):
                 ),
             )
 
-            next_mask = (
-                torch.arange(next_max_seqlen, device=device)[None, :]
-                < num_tokens[:, None]
-            )
+            next_mask = torch.arange(next_max_seqlen, device=device)[None, :] < num_tokens[:, None]
             next_max_seqlen = None
 
         return next_hidden_states, next_cu_seqlens, next_max_seqlen, next_mask
@@ -231,9 +212,7 @@ class DeChunkLayer(nn.Module):
 
     def allocate_inference_cache(self, batch_size, max_seqlen, device, dtype=None):
         return DeChunkState(
-            last_value=torch.zeros(
-                batch_size, self.d_model, device=device, dtype=dtype
-            ),
+            last_value=torch.zeros(batch_size, self.d_model, device=device, dtype=dtype),
         )
 
     def forward(
@@ -246,12 +225,8 @@ class DeChunkLayer(nn.Module):
         mask=None,
     ):
         if inference_params is not None:
-            assert (
-                mask is not None
-            ), "Mask must be provided if inference_params is provided"
-            assert boundary_mask[
-                :, 0
-            ].all(), "First token must be a boundary if running prefill"
+            assert mask is not None, "Mask must be provided if inference_params is provided"
+            assert boundary_mask[:, 0].all(), "First token must be a boundary if running prefill"
 
         p = torch.clamp(boundary_prob[..., -1].float(), min=1e-4, max=1 - (1e-4))
 
@@ -263,8 +238,7 @@ class DeChunkLayer(nn.Module):
             seq_idx = None
 
             token_idx = (
-                torch.arange(L, device=hidden_states.device)[None, :]
-                + (~boundary_mask).long() * L
+                torch.arange(L, device=hidden_states.device)[None, :] + (~boundary_mask).long() * L
             )
             seq_sorted_indices = torch.argsort(token_idx, dim=1)
 
@@ -276,9 +250,7 @@ class DeChunkLayer(nn.Module):
         # Reuse Mamba2 kernel for EMA Deaggregator.
         dt = torch.log(1 / (1 - p)).to(self.dtype)
         x = (hidden_states / dt[..., None]).to(self.dtype)
-        A = -torch.ones(
-            (self.nheads,), device=hidden_states.device, dtype=torch.float32
-        )
+        A = -torch.ones((self.nheads,), device=hidden_states.device, dtype=torch.float32)
         b = p.to(self.dtype)
         c = torch.ones_like(b)
 
@@ -321,9 +293,7 @@ class DeChunkLayer(nn.Module):
         D = hidden_states.shape[-1]
 
         p = torch.zeros(B, device=hidden_states.device, dtype=hidden_states.dtype)
-        p[boundary_mask] = boundary_prob[boundary_mask, -1].clamp(
-            min=1e-4, max=1 - (1e-4)
-        )
+        p[boundary_mask] = boundary_prob[boundary_mask, -1].clamp(min=1e-4, max=1 - (1e-4))
 
         current_hidden_states = torch.zeros(
             B, D, device=hidden_states.device, dtype=hidden_states.dtype

@@ -12,9 +12,7 @@ def get_seq_idx(cu_seqlens, device=None):
 
 
 def get_stage_cfg(cfg, stage_idx):
-    return {
-        k: v[stage_idx] if isinstance(v, list) else v for k, v in asdict(cfg).items()
-    }
+    return {k: v[stage_idx] if isinstance(v, list) else v for k, v in asdict(cfg).items()}
 
 
 def apply_optimization_params(
