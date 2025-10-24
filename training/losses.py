@@ -7,6 +7,7 @@ This module provides:
 - Combined loss computation
 """
 
+import math
 from typing import Dict, List, Optional
 
 import torch
@@ -130,8 +131,15 @@ class HierarchicalLoadBalancingLoss:
         if len(bpred_outputs) == 0:
             return {"total": torch.tensor(0.0), "per_stage": {}}
 
+        # Use the first output to place tensors on the right device
+        ref = bpred_outputs[0]
+        if hasattr(ref, "boundary_prob") and ref.boundary_prob is not None:
+            ref_device = ref.boundary_prob.device
+        else:
+            ref_device = ref.boundary_mask.device
+
         stage_losses = {}
-        total_loss = 0.0
+        total_loss = torch.zeros((), device=ref_device)
 
         for stage_idx, router_output in enumerate(bpred_outputs):
             # Determine downsampling factor for this stage
@@ -167,7 +175,7 @@ class CombinedLoss:
         self,
         lm_loss: LanguageModelingLoss,
         lb_loss: HierarchicalLoadBalancingLoss,
-        lb_weight: float = 0.01,
+        lb_weight: float = 0.03,
     ):
         """
         Initialize combined loss.
@@ -230,6 +238,22 @@ def compute_perplexity(loss: torch.Tensor) -> torch.Tensor:
     return torch.exp(loss)
 
 
+def compute_bpb(loss: torch.Tensor) -> torch.Tensor:
+    """
+    Compute bits-per-byte from cross-entropy loss.
+
+    CrossEntropyLoss in PyTorch uses natural log (nats).
+    This converts nats to bits for byte-level models.
+
+    Args:
+        loss: Cross-entropy loss in nats
+
+    Returns:
+        Bits-per-byte (technically bits-per-token)
+    """
+    return loss / math.log(2.0)
+
+
 def compute_token_accuracy(
     logits: torch.Tensor,
     targets: torch.Tensor,
@@ -251,10 +275,15 @@ def compute_token_accuracy(
 
     # Create mask for valid tokens
     mask = targets != ignore_index
+    valid = mask.sum()
+
+    # Guard against empty mask
+    if valid == 0:
+        return torch.tensor(0.0, device=logits.device)
 
     # Compute accuracy only on valid tokens
     correct = (predictions == targets) & mask
-    accuracy = correct.sum().float() / mask.sum().float()
+    accuracy = correct.sum().float() / valid.float()
 
     return accuracy
 
@@ -274,13 +303,14 @@ def get_routing_statistics(
     stats = {}
 
     for stage_idx, router_output in enumerate(bpred_outputs):
-        # Boundary prediction rate
-        boundary_rate = router_output.boundary_mask.float().mean()
-        stats[f"stage_{stage_idx}_boundary_rate"] = boundary_rate
-
-        # Average boundary probability
+        # Prefer boundary_prob when available (gradient-friendly, expected boundary rate)
         if hasattr(router_output, "boundary_prob") and router_output.boundary_prob is not None:
-            avg_prob = router_output.boundary_prob.mean()
-            stats[f"stage_{stage_idx}_avg_prob"] = avg_prob
+            boundary_rate = router_output.boundary_prob.mean()
+            stats[f"stage_{stage_idx}_boundary_rate"] = boundary_rate
+            stats[f"stage_{stage_idx}_avg_prob"] = boundary_rate
+        else:
+            # Fallback to hard mask
+            boundary_rate = router_output.boundary_mask.float().mean()
+            stats[f"stage_{stage_idx}_boundary_rate"] = boundary_rate
 
     return stats
