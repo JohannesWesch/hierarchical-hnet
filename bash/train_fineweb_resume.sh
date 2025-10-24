@@ -3,10 +3,15 @@
 
 # Load required modules
 module load devel/cuda/12.8
-module load devel/miniforge/25.3.1-python-3.12
 
-# Activate conda environment
-conda activate hnet
+# Ensure virtual environment exists
+if [ ! -d ".venv" ]; then
+    echo "Virtual environment not found. Creating it with uv sync..."
+    uv sync --extra dev --extra datasets
+fi
+
+# Activate uv virtual environment
+source .venv/bin/activate
 
 # Training configuration
 CONFIG_PATH="configs/hnet_2stage_L.json"

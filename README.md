@@ -37,20 +37,51 @@ generate.py        # Script for inference/generation
 
 ### Requirements:
 - PyTorch >= 2.5.1
+- uv (for dependency management)
 
-Clone the repository and install package.
+First, install uv if you haven't already:
+``` sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Clone the repository and install package:
 ``` sh
 git clone https://github.com/goombalab/hnet
 cd hnet
-pip install -e .
+uv pip install -e .
 ```
 
+Alternatively, use uv's project management for reproducible installs with lock files:
+``` sh
+# Generate lock file and install dependencies
+uv sync
+
+# With optional dependencies
+uv sync --extra dev --extra datasets
+```
+
+**Note:** `uv sync` creates a `.venv/` and generates `uv.lock` for reproducibility. If you're using an existing conda environment, stick with `uv pip install` instead (no lock file generated).
+
+For development with optional dependencies (testing, linting, etc.):
+``` sh
+uv pip install -e ".[dev]"
+```
+
+For dataset utilities (HuggingFace Hub integration):
+``` sh
+uv pip install -e ".[datasets]"
+```
+
+Or install all optional dependencies:
+``` sh
+uv pip install -e ".[dev,datasets]"
+```
 
 We strongly recommend building **mamba_ssm** package from [**the latest source**](https://github.com/state-spaces/mamba) as follows:
 ``` sh
 git clone https://github.com/state-spaces/mamba
 cd mamba
-pip install .
+uv pip install .
 ```
 
 ## Pretrained Models
