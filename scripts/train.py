@@ -357,6 +357,7 @@ def evaluate(
     model: HNetForCausalLM,
     val_dataloader: DataLoader,
     device: torch.device,
+    load_balancing_weight: float,
 ) -> Dict[str, float]:
     """Evaluate model on validation set."""
     model.eval()
@@ -387,7 +388,7 @@ def evaluate(
             bpred_outputs = output.bpred_output
 
             # Compute loss
-            loss_dict = compute_loss(logits, targets_2d, bpred_outputs, 0.01)
+            loss_dict = compute_loss(logits, targets_2d, bpred_outputs, load_balancing_weight)
 
             # Update meters
             loss_meter.update(loss_dict["loss"].item())
@@ -489,7 +490,9 @@ def train(
                 # Evaluation
                 if val_dataloader is not None and (step + 1) % args.eval_interval == 0:
                     logger.info(f"Evaluating at step {step + 1}")
-                    val_metrics = evaluate(model, val_dataloader, device)
+                    val_metrics = evaluate(
+                        model, val_dataloader, device, args.load_balancing_weight
+                    )
                     logger.info(f"Validation metrics: {val_metrics}")
 
                 step += 1
