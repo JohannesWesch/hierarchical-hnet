@@ -67,12 +67,12 @@ You can find specifics of these models at [configs](configs), and more details f
 
 ## Text Generation
 
-We provide [generate.py](generate.py) for text generation that you can use with the pretrained checkpoints.
+We provide [scripts/generate.py](scripts/generate.py) for text generation that you can use with the pretrained checkpoints.
 
 ### Examples
 ``` sh
-python generate.py --model-path [MODEL_CKPT] --config-path [CONFIG]
-python generate.py --model-path hnet_2stage_XL.pt --config-path configs/hnet_2stage_XL.json --max-tokens 1024 --temperature 1.0 --top-p 1.0
+python scripts/generate.py --model-path [MODEL_CKPT] --config-path [CONFIG]
+python scripts/generate.py --model-path hnet_2stage_XL.pt --config-path configs/hnet_2stage_XL.json --max-tokens 1024 --temperature 1.0 --top-p 1.0
 ```
 
 

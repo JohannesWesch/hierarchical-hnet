@@ -1,0 +1,1 @@
+../bash/train_example.sh

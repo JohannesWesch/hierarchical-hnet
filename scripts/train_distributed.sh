@@ -1,0 +1,1 @@
+../bash/train_distributed.sh
