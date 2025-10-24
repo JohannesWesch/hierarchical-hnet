@@ -25,7 +25,7 @@ DTYPE="bfloat16"
 SEED=42
 
 # Run training
-python ../scripts/train.py \
+python scripts/train.py \
     --config-path $CONFIG_PATH \
     --train-data-path $TRAIN_DATA \
     --val-data-path $VAL_DATA \

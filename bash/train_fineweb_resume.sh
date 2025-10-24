@@ -37,7 +37,7 @@ if [ -d "$OUTPUT_DIR" ]; then
 fi
 
 # Build training command
-CMD="python ../scripts/train.py \
+CMD="python scripts/train.py \
     --config-path $CONFIG_PATH \
     --output-dir $OUTPUT_DIR \
     --use-hf-dataset \

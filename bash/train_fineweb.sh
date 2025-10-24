@@ -23,7 +23,7 @@ DTYPE="bfloat16"
 SEED=42
 
 # Run training with FineWeb-Edu dataset
-python ../scripts/train.py \
+python scripts/train.py \
     --config-path $CONFIG_PATH \
     --output-dir $OUTPUT_DIR \
     --use-hf-dataset \

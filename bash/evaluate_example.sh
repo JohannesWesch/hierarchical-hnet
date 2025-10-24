@@ -14,7 +14,7 @@ MAX_SEQ_LENGTH=2048
 OUTPUT_PATH="./outputs/hnet_2stage_L/evaluation_results.json"
 
 # Run evaluation
-python ../scripts/evaluate.py \
+python scripts/evaluate.py \
     --model-path $MODEL_PATH \
     --config-path $CONFIG_PATH \
     --data-path $DATA_PATH \

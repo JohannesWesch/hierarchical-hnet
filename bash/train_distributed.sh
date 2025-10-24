@@ -25,7 +25,7 @@ torchrun \
     --nproc_per_node=$NUM_GPUS \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
-    ../scripts/train.py \
+    scripts/train.py \
     --config-path $CONFIG_PATH \
     --train-data-path $TRAIN_DATA \
     --val-data-path $VAL_DATA \
