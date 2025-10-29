@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=hnet-distributed-training
+#SBATCH --job-name=hnet-2stage-XL
 #SBATCH --partition=gpu_h100
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=24
 #SBATCH --mem=760000mb
 #SBATCH --time=12:00:00
-#SBATCH --output=logs/training_%j.out
-#SBATCH --error=logs/training_%j.err
+#SBATCH --output=logs/training_2stage_XL_%j.out
+#SBATCH --error=logs/training_2stage_XL_%j.err
 
 # Create logs directory if it doesn't exist
 mkdir -p logs
@@ -24,6 +24,16 @@ fi
 
 # Activate uv virtual environment
 source .venv/bin/activate
+
+# Load hyperparameters
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HYPERPARAMS="$SCRIPT_DIR/hyperparams.json"
+
+# Source the hyperparameter loading function
+source "$(dirname "$SCRIPT_DIR")/load_hyperparams.sh"
+
+# Load hyperparameters
+load_hyperparams "$HYPERPARAMS"
 
 # Set environment variables for distributed training
 export MASTER_ADDR=$(hostname)
@@ -56,20 +66,24 @@ export CUDA_VISIBLE_DEVICES=$SLURM_LOCALID
 echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 nvidia-smi
 
-# Run distributed training
-echo "Starting distributed training..."
-srun python scripts/train.py \
+# Run distributed training with diagnostic fixes
+echo "Starting distributed training with fixed hyperparameters..."
+srun python scripts/train_fixed.py \
     --distributed \
-    --config-path configs/hnet_2stage_XL.json \
-    --batch-size 32 \
-    --gradient-accumulation-steps 1 \
-    --learning-rate 3e-4 \
-    --max-seq-length 2048 \
-    --num-training-steps 100000 \
-    --save-interval 1000 \
-    --eval-interval 500 \
-    --log-interval 10 \
-    --output-dir ./outputs/hnet_2stage_XL_distributed \
-    --backend nccl
+    --config-path "$MODEL_CONFIG" \
+    --output-dir "$OUTPUT_DIR" \
+    --learning-rate "$LEARNING_RATE" \
+    --lr-multipliers "$LR_MULTIPLIERS" \
+    --warmup-steps "$WARMUP_STEPS" \
+    --max-grad-norm "$MAX_GRAD_NORM" \
+    --batch-size "$BATCH_SIZE" \
+    --gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS" \
+    --max-seq-length "$MAX_SEQ_LENGTH" \
+    --num-training-steps "$NUM_TRAINING_STEPS" \
+    --save-interval "$SAVE_INTERVAL" \
+    --eval-interval "$EVAL_INTERVAL" \
+    --log-interval "$LOG_INTERVAL" \
+    --dtype "$DTYPE" \
+    --backend "$BACKEND"
 
 echo "Training completed!"
