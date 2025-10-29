@@ -186,6 +186,26 @@ def parse_args():
         help="Number of data loading workers",
     )
 
+    # Distributed training settings
+    parser.add_argument(
+        "--distributed",
+        action="store_true",
+        help="Enable distributed training",
+    )
+    parser.add_argument(
+        "--local-rank",
+        type=int,
+        default=0,
+        help="Local rank for distributed training",
+    )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default="nccl",
+        choices=["nccl", "gloo", "mpi"],
+        help="Distributed backend",
+    )
+
     return parser.parse_args()
 
 
@@ -416,15 +436,20 @@ def train(
     start_step: int = 0,
 ):
     """Main training loop."""
+    from training.distributed import is_main_process
     from training.utils import (
         AverageMeter,
         ProgressTracker,
     )
 
     # Setup logging
-    logger = setup_logging(args.output_dir)
-    logger.info(f"Starting training for {args.num_training_steps} steps")
-    logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    if not args.distributed or is_main_process():
+        logger = setup_logging(args.output_dir)
+        logger.info(f"Starting training for {args.num_training_steps} steps")
+        param_count = sum(p.numel() for p in model.parameters())
+        logger.info(f"Model parameters: {param_count:,}")
+    else:
+        logger = None
 
     # Training meters
     loss_meter = AverageMeter("loss", ":.4f")
@@ -473,11 +498,16 @@ def train(
                     # Get learning rates
                     lrs = {f"group_{i}": pg["lr"] for i, pg in enumerate(optimizer.param_groups)}
 
-                    log_training_stats(step + 1, metrics["loss"], metrics, lrs, step_time, logger)
+                    if not args.distributed or is_main_process():
+                        log_training_stats(
+                            step + 1, metrics["loss"], metrics, lrs, step_time, logger
+                        )
 
                 # Checkpointing
                 if (step + 1) % args.save_interval == 0:
-                    logger.info(f"Saving checkpoint at step {step + 1}")
+                    if not args.distributed or is_main_process():
+                        if logger:
+                            logger.info(f"Saving checkpoint at step {step + 1}")
                     save_checkpoint(
                         model,
                         optimizer,
@@ -489,19 +519,26 @@ def train(
 
                 # Evaluation
                 if val_dataloader is not None and (step + 1) % args.eval_interval == 0:
-                    logger.info(f"Evaluating at step {step + 1}")
+                    if not args.distributed or is_main_process():
+                        if logger:
+                            logger.info(f"Evaluating at step {step + 1}")
                     val_metrics = evaluate(
                         model, val_dataloader, device, args.load_balancing_weight
                     )
-                    logger.info(f"Validation metrics: {val_metrics}")
+                    if not args.distributed or is_main_process():
+                        if logger:
+                            logger.info(f"Validation metrics: {val_metrics}")
 
                 step += 1
 
     except KeyboardInterrupt:
-        logger.info("Training interrupted by user")
+        if logger:
+            logger.info("Training interrupted by user")
 
     # Save final checkpoint
-    logger.info("Saving final checkpoint")
+    if not args.distributed or is_main_process():
+        if logger:
+            logger.info("Saving final checkpoint")
     save_checkpoint(
         model,
         optimizer,
@@ -511,7 +548,9 @@ def train(
         metrics={"final": True},
     )
 
-    logger.info(f"Training complete! Total steps: {step}")
+    if not args.distributed or is_main_process():
+        if logger:
+            logger.info(f"Training complete! Total steps: {step}")
 
 
 def main():
@@ -519,12 +558,26 @@ def main():
     # Parse arguments
     args = parse_args()
 
-    # Setup
-    set_seed(args.seed)
-    os.makedirs(args.output_dir, exist_ok=True)
+    # Setup distributed training if enabled
+    distributed_info = None
+    if args.distributed:
+        from training.distributed import cleanup_distributed, is_main_process, setup_distributed
 
-    # Setup device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        distributed_info = setup_distributed(backend=args.backend)
+
+        # Set device based on local rank
+        device = torch.device(f"cuda:{distributed_info['local_rank']}")
+
+        # Only print on main process to avoid spam
+        if is_main_process():
+            print(
+                f"Distributed training enabled: rank {distributed_info['rank']}/{distributed_info['world_size']}"
+            )
+            print(f"Using device: {device}, local_rank: {distributed_info['local_rank']}")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}")
+
     dtype_map = {
         "float32": torch.float32,
         "float16": torch.float16,
@@ -532,18 +585,27 @@ def main():
     }
     dtype = dtype_map[args.dtype]
 
-    print(f"Using device: {device}, dtype: {dtype}")
+    if not args.distributed or is_main_process():
+        print(f"Using dtype: {dtype}")
+
+    # Setup
+    set_seed(args.seed)
+    if not args.distributed or is_main_process():
+        os.makedirs(args.output_dir, exist_ok=True)
 
     # Load configuration
-    print(f"Loading model config from {args.config_path}")
+    if not args.distributed or is_main_process():
+        print(f"Loading model config from {args.config_path}")
     config = load_model_config(args.config_path)
 
     # Parse LR multipliers
     lr_multipliers = [float(x) for x in args.lr_multipliers.split(",")]
-    print(f"LR multipliers: {lr_multipliers}")
+    if not args.distributed or is_main_process():
+        print(f"LR multipliers: {lr_multipliers}")
 
     # Initialize model
-    print("Initializing model...")
+    if not args.distributed or is_main_process():
+        print("Initializing model...")
     model = initialize_model(
         config,
         device,
@@ -551,20 +613,32 @@ def main():
         args.initializer_range,
         lr_multipliers,
     )
-    print(f"Model initialized with {sum(p.numel() for p in model.parameters()):,} parameters")
+
+    # Wrap model with DDP if distributed training is enabled
+    if args.distributed:
+        from training.distributed import setup_ddp_model
+
+        model = setup_ddp_model(model)
+
+    if not args.distributed or is_main_process():
+        param_count = sum(p.numel() for p in model.parameters())
+        print(f"Model initialized with {param_count:,} parameters")
 
     # Setup data
-    print("Setting up data loaders...")
-    from training.data import TextDataset
+    if not args.distributed or is_main_process():
+        print("Setting up data loaders...")
+    from training.data import DistributedIterableDatasetWrapper, TextDataset
 
     # Load FineWeb-Edu dataset from HuggingFace
-    print("Loading FineWeb-Edu dataset from HuggingFace...")
+    if not args.distributed or is_main_process():
+        print("Loading FineWeb-Edu dataset from HuggingFace...")
     from datasets import load_dataset
 
     # Load dataset with proper train/val split (no data leakage)
-    print("Loading HuggingFace dataset with train/val split...")
-    print("  - Validation: first 1000 examples")
-    print("  - Training: remaining examples (skipping first 1000)")
+    if not args.distributed or is_main_process():
+        print("Loading HuggingFace dataset with train/val split...")
+        print("  - Validation: first 1000 examples")
+        print("  - Training: remaining examples (skipping first 1000)")
 
     base_hf_dataset = load_dataset(
         "HuggingFaceFW/fineweb-edu", name="sample-100BT", split="train", streaming=True
@@ -581,13 +655,19 @@ def main():
         max_length=args.max_seq_length,
     )
 
+    # Wrap with distributed wrapper if distributed training is enabled
+    if args.distributed:
+        train_dataset = DistributedIterableDatasetWrapper(train_dataset)
+
     train_collator = PackedDataCollator(max_seq_length=args.max_seq_length)
 
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
         collate_fn=train_collator,
-        num_workers=0,  # HF streaming datasets don't work well with multiple workers
+        num_workers=2 if args.distributed else 4,  # Use fewer workers for distributed training
+        pin_memory=True,
+        persistent_workers=True,
     )
 
     # Validation data (use a small sample from the training set or separate validation set)
@@ -603,11 +683,13 @@ def main():
             val_dataset,
             batch_size=args.batch_size,
             collate_fn=train_collator,
-            num_workers=0,
+            num_workers=2 if args.distributed else 4,
+            pin_memory=True,
         )
     else:
         # Use first 1000 examples for validation (training skips these)
-        print("Creating validation set from first 1000 examples...")
+        if not args.distributed or is_main_process():
+            print("Creating validation set from first 1000 examples...")
         val_base_dataset = load_dataset(
             "HuggingFaceFW/fineweb-edu", name="sample-100BT", split="train", streaming=True
         )
@@ -619,16 +701,31 @@ def main():
             add_bos=True,
             max_length=args.max_seq_length,
         )
+
+        # Wrap with distributed wrapper if distributed training is enabled
+        if args.distributed:
+            val_dataset = DistributedIterableDatasetWrapper(val_dataset)
+
         val_dataloader = DataLoader(
             val_dataset,
             batch_size=args.batch_size,
             collate_fn=train_collator,
-            num_workers=0,
+            num_workers=2 if args.distributed else 4,
+            pin_memory=True,
         )
 
     # Setup optimizer and scheduler
-    print("Setting up optimizer and scheduler...")
-    optimizer = setup_optimizer(model, args.learning_rate, args.weight_decay)
+    if not args.distributed or is_main_process():
+        print("Setting up optimizer and scheduler...")
+
+    # Scale learning rate by world size for distributed training
+    effective_lr = args.learning_rate
+    if args.distributed:
+        effective_lr = args.learning_rate * distributed_info["world_size"]
+        if is_main_process():
+            print(f"Scaling learning rate by world_size: {args.learning_rate} -> {effective_lr}")
+
+    optimizer = setup_optimizer(model, effective_lr, args.weight_decay)
 
     scheduler = get_lr_scheduler(
         optimizer,
@@ -640,25 +737,34 @@ def main():
     # Resume from checkpoint if provided
     start_step = 0
     if args.resume_from:
-        print(f"Resuming from checkpoint: {args.resume_from}")
+        if not args.distributed or is_main_process():
+            print(f"Resuming from checkpoint: {args.resume_from}")
         from training.utils import load_checkpoint
 
         metadata = load_checkpoint(args.resume_from, model, optimizer, scheduler, device)
         start_step = metadata["step"]
-        print(f"Resumed from step {start_step}")
+        if not args.distributed or is_main_process():
+            print(f"Resumed from step {start_step}")
 
     # Train
-    print("Starting training...")
-    train(
-        model,
-        train_dataloader,
-        val_dataloader,
-        optimizer,
-        scheduler,
-        args,
-        device,
-        start_step,
-    )
+    if not args.distributed or is_main_process():
+        print("Starting training...")
+
+    try:
+        train(
+            model,
+            train_dataloader,
+            val_dataloader,
+            optimizer,
+            scheduler,
+            args,
+            device,
+            start_step,
+        )
+    finally:
+        # Cleanup distributed training
+        if args.distributed:
+            cleanup_distributed()
 
 
 if __name__ == "__main__":

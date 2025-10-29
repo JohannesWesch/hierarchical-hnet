@@ -78,7 +78,7 @@ def save_checkpoint(
     Save training checkpoint.
 
     Args:
-        model: H-Net model
+        model: H-Net model (can be wrapped with DDP)
         optimizer: Optimizer
         scheduler: Learning rate scheduler
         step: Current training step
@@ -86,12 +86,27 @@ def save_checkpoint(
         config: Model configuration
         metrics: Training metrics to save
     """
+    # Only save on main process to avoid conflicts
+    try:
+        from training.distributed import is_main_process
+
+        if not is_main_process():
+            return
+    except ImportError:
+        pass  # Not in distributed mode
+
     os.makedirs(output_dir, exist_ok=True)
+
+    # Handle DDP-wrapped models
+    model_state_dict = model.state_dict()
+    if hasattr(model, "module"):
+        # Model is wrapped with DDP, get the unwrapped state dict
+        model_state_dict = model.module.state_dict()
 
     # Create checkpoint dictionary
     checkpoint = {
         "step": step,
-        "model_state_dict": model.state_dict(),
+        "model_state_dict": model_state_dict,
         "optimizer_state_dict": optimizer.state_dict(),
         "scheduler_state_dict": scheduler.state_dict(),
     }

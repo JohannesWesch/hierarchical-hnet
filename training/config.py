@@ -23,12 +23,20 @@ class DataConfig:
 
     def to_dict(self):
         """Convert to dictionary."""
-        pass
+        return {
+            "train_data_path": self.train_data_path,
+            "val_data_path": self.val_data_path,
+            "max_seq_length": self.max_seq_length,
+            "batch_size": self.batch_size,
+            "num_workers": self.num_workers,
+            "prefetch_factor": self.prefetch_factor,
+            "pin_memory": self.pin_memory,
+        }
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         """Create from dictionary."""
-        pass
+        return cls(**config_dict)
 
 
 @dataclass
@@ -51,12 +59,22 @@ class OptimizationConfig:
 
     def to_dict(self):
         """Convert to dictionary."""
-        pass
+        return {
+            "learning_rate": self.learning_rate,
+            "lr_multipliers": self.lr_multipliers,
+            "weight_decay": self.weight_decay,
+            "max_grad_norm": self.max_grad_norm,
+            "gradient_accumulation_steps": self.gradient_accumulation_steps,
+            "num_training_steps": self.num_training_steps,
+            "num_warmup_steps": self.num_warmup_steps,
+            "scheduler_type": self.scheduler_type,
+            "load_balancing_weight": self.load_balancing_weight,
+        }
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         """Create from dictionary."""
-        pass
+        return cls(**config_dict)
 
 
 @dataclass
@@ -70,12 +88,17 @@ class ModelConfig:
 
     def to_dict(self):
         """Convert to dictionary."""
-        pass
+        return {
+            "config_path": self.config_path,
+            "dtype": self.dtype,
+            "initializer_range": self.initializer_range,
+            "tie_embeddings": self.tie_embeddings,
+        }
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         """Create from dictionary."""
-        pass
+        return cls(**config_dict)
 
 
 @dataclass
@@ -91,12 +114,19 @@ class CheckpointConfig:
 
     def to_dict(self):
         """Convert to dictionary."""
-        pass
+        return {
+            "output_dir": self.output_dir,
+            "save_interval": self.save_interval,
+            "eval_interval": self.eval_interval,
+            "log_interval": self.log_interval,
+            "keep_last_n_checkpoints": self.keep_last_n_checkpoints,
+            "save_optimizer_state": self.save_optimizer_state,
+        }
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         """Create from dictionary."""
-        pass
+        return cls(**config_dict)
 
 
 @dataclass
@@ -113,12 +143,20 @@ class SystemConfig:
 
     def to_dict(self):
         """Convert to dictionary."""
-        pass
+        return {
+            "seed": self.seed,
+            "device": self.device,
+            "distributed": self.distributed,
+            "world_size": self.world_size,
+            "rank": self.rank,
+            "local_rank": self.local_rank,
+            "backend": self.backend,
+        }
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         """Create from dictionary."""
-        pass
+        return cls(**config_dict)
 
 
 @dataclass
@@ -133,22 +171,44 @@ class TrainingConfig:
 
     def to_dict(self):
         """Convert to dictionary."""
-        pass
+        return {
+            "data": self.data.to_dict(),
+            "optimization": self.optimization.to_dict(),
+            "model": self.model.to_dict(),
+            "checkpoint": self.checkpoint.to_dict(),
+            "system": self.system.to_dict(),
+        }
 
     def to_json(self, path: str):
         """Save configuration to JSON file."""
-        pass
+        import json
+
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         """Create from dictionary."""
-        pass
+        return cls(
+            data=DataConfig.from_dict(config_dict.get("data", {})),
+            optimization=OptimizationConfig.from_dict(config_dict.get("optimization", {})),
+            model=ModelConfig.from_dict(config_dict.get("model", {})),
+            checkpoint=CheckpointConfig.from_dict(config_dict.get("checkpoint", {})),
+            system=SystemConfig.from_dict(config_dict.get("system", {})),
+        )
 
     @classmethod
     def from_json(cls, path: str):
         """Load configuration from JSON file."""
-        pass
+        import json
+
+        with open(path, "r") as f:
+            config_dict = json.load(f)
+        return cls.from_dict(config_dict)
 
     def validate(self):
         """Validate configuration values."""
-        pass
+        # Basic validation - can be extended
+        assert self.data.batch_size > 0, "Batch size must be positive"
+        assert self.optimization.learning_rate > 0, "Learning rate must be positive"
+        assert self.optimization.num_training_steps > 0, "Number of training steps must be positive"

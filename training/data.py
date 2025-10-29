@@ -408,3 +408,61 @@ class HuggingFaceStreamingDataset(IterableDataset):
                 input_ids = input_ids[: self.max_length]
 
             yield {"input_ids": input_ids}
+
+
+class DistributedIterableDatasetWrapper(IterableDataset):
+    """
+    Wrapper for iterable datasets to enable distributed training.
+
+    This wrapper shards the data across multiple processes to ensure
+    each GPU sees different data samples during training.
+    """
+
+    def __init__(
+        self,
+        dataset: IterableDataset,
+        rank: Optional[int] = None,
+        world_size: Optional[int] = None,
+    ):
+        """
+        Initialize distributed wrapper.
+
+        Args:
+            dataset: The iterable dataset to wrap
+            rank: Current process rank (auto-detected if None)
+            world_size: Total number of processes (auto-detected if None)
+        """
+        super().__init__()
+        self.dataset = dataset
+
+        # Auto-detect rank and world_size if not provided
+        if rank is None or world_size is None:
+            try:
+                from training.distributed import get_rank, get_world_size
+
+                self.rank = rank if rank is not None else get_rank()
+                self.world_size = world_size if world_size is not None else get_world_size()
+            except ImportError:
+                # Fallback to environment variables
+                self.rank = int(os.environ.get("RANK", 0))
+                self.world_size = int(os.environ.get("WORLD_SIZE", 1))
+        else:
+            self.rank = rank
+            self.world_size = world_size
+
+    def __iter__(self):
+        """Iterate over sharded data."""
+        # Create an iterator from the wrapped dataset
+        iterator = iter(self.dataset)
+
+        # Skip examples for this rank to shard the data
+        for i, example in enumerate(iterator):
+            if i % self.world_size == self.rank:
+                yield example
+
+    def __len__(self):
+        """Return length if available from wrapped dataset."""
+        if hasattr(self.dataset, "__len__"):
+            # For distributed training, each process sees 1/world_size of the data
+            return len(self.dataset) // self.world_size
+        return None
