@@ -71,7 +71,7 @@ def parse_args():
     parser.add_argument(
         "--max-seq-length",
         type=int,
-        default=2048,
+        required=True,
         help="Maximum sequence length",
     )
 
@@ -79,25 +79,25 @@ def parse_args():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=8,
+        required=True,
         help="Batch size per device",
     )
     parser.add_argument(
         "--gradient-accumulation-steps",
         type=int,
-        default=1,
+        required=True,
         help="Number of gradient accumulation steps",
     )
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=2e-4,
+        required=True,
         help="Base learning rate",
     )
     parser.add_argument(
         "--lr-multipliers",
         type=str,
-        default="2.0,1.5,1.0",
+        required=True,
         help="Comma-separated learning rate multipliers per stage",
     )
     parser.add_argument(
@@ -109,7 +109,7 @@ def parse_args():
     parser.add_argument(
         "--max-grad-norm",
         type=float,
-        default=5.0,
+        required=True,
         help="Maximum gradient norm for clipping",
     )
     parser.add_argument(
@@ -121,13 +121,13 @@ def parse_args():
     parser.add_argument(
         "--num-training-steps",
         type=int,
-        default=100000,
+        required=True,
         help="Total number of training steps",
     )
     parser.add_argument(
         "--warmup-steps",
         type=int,
-        default=5000,
+        required=True,
         help="Number of warmup steps",
     )
 
@@ -135,7 +135,7 @@ def parse_args():
     parser.add_argument(
         "--dtype",
         type=str,
-        default="bfloat16",
+        required=True,
         choices=["float32", "float16", "bfloat16"],
         help="Data type for model weights",
     )
@@ -150,25 +150,25 @@ def parse_args():
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="./outputs",
+        required=True,
         help="Directory for saving checkpoints and logs",
     )
     parser.add_argument(
         "--save-interval",
         type=int,
-        default=1000,
+        required=True,
         help="Save checkpoint every N steps",
     )
     parser.add_argument(
         "--eval-interval",
         type=int,
-        default=500,
+        required=True,
         help="Evaluate every N steps",
     )
     parser.add_argument(
         "--log-interval",
         type=int,
-        default=10,
+        required=True,
         help="Log training stats every N steps",
     )
 
@@ -201,7 +201,7 @@ def parse_args():
     parser.add_argument(
         "--backend",
         type=str,
-        default="nccl",
+        required=True,
         choices=["nccl", "gloo", "mpi"],
         help="Distributed backend",
     )
