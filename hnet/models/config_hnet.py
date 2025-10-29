@@ -4,7 +4,6 @@ from typing import List, Union
 
 @dataclass
 class AttnConfig:
-
     num_heads: List = field(default_factory=list)
     rotary_emb_dim: List = field(default_factory=list)
     window_size: List = field(default_factory=list)
@@ -12,7 +11,6 @@ class AttnConfig:
 
 @dataclass
 class SSMConfig:
-
     d_conv: int = 4
     expand: int = 2
     d_state: int = 128

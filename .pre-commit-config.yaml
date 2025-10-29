@@ -1,0 +1,48 @@
+repos:
+  # Ruff - Fast Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      # Linter
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      # Formatter
+      - id: ruff-format
+
+  # Black - Python code formatter (as backup)
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3.12
+
+  # General hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Basic checks
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: debug-statements
+      - id: detect-private-key
+      - id: mixed-line-ending
+      - id: check-ast
+      - id: check-docstring-first
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-toml
+      - id: fix-byte-order-marker
+      - id: pretty-format-json
+        args: [--autofix]
+
+  # Shell script formatting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: [-e, SC1091]  # Ignore source errors for shellcheck
+
+  # YAML formatting is handled by check-yaml hook above

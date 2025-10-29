@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Data pipeline analysis script for H-Net diagnostic review.
 

@@ -22,4 +22,3 @@ python scripts/evaluate.py \
     --max-seq-length $MAX_SEQ_LENGTH \
     --output-path $OUTPUT_PATH \
     --device cuda
-

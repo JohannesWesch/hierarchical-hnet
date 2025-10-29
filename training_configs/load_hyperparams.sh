@@ -3,12 +3,12 @@
 
 load_hyperparams() {
     local config_file=$1
-    
+
     if [ ! -f "$config_file" ]; then
         echo "Error: Hyperparameter config file not found: $config_file"
         exit 1
     fi
-    
+
     # Load all hyperparameters from JSON file
     MODEL_CONFIG=$(python -c "import json; print(json.load(open('$config_file'))['model_config'])")
     OUTPUT_DIR=$(python -c "import json; print(json.load(open('$config_file'))['output_dir'])")
@@ -25,7 +25,7 @@ load_hyperparams() {
     LOG_INTERVAL=$(python -c "import json; print(json.load(open('$config_file'))['log_interval'])")
     DTYPE=$(python -c "import json; print(json.load(open('$config_file'))['dtype'])")
     BACKEND=$(python -c "import json; print(json.load(open('$config_file'))['backend'])")
-    
+
     echo "Loaded hyperparameters from: $config_file"
     echo "Model config: $MODEL_CONFIG"
     echo "Output dir: $OUTPUT_DIR"

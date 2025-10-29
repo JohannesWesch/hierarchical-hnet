@@ -43,7 +43,6 @@ class DeChunkState:
 
 
 class RoutingModule(nn.Module):
-
     def __init__(self, d_model, device=None, dtype=None):
         self.d_model = d_model
         factory_kwargs = {"device": device, "dtype": dtype}
@@ -153,7 +152,6 @@ class RoutingModule(nn.Module):
 
 
 class ChunkLayer(nn.Module):
-
     def forward(self, hidden_states, boundary_mask, cu_seqlens=None, mask=None):
         assert (mask is not None) or (
             cu_seqlens is not None
@@ -192,7 +190,6 @@ class ChunkLayer(nn.Module):
 
 
 class DeChunkLayer(nn.Module):
-
     def __init__(
         self,
         d_model,

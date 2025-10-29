@@ -36,7 +36,8 @@ source "$(dirname "$SCRIPT_DIR")/load_hyperparams.sh"
 load_hyperparams "$HYPERPARAMS"
 
 # Set environment variables for distributed training
-export MASTER_ADDR=$(hostname)
+MASTER_ADDR=$(hostname)
+export MASTER_ADDR
 export MASTER_PORT=12355
 export WORLD_SIZE=$SLURM_NTASKS
 export RANK=$SLURM_PROCID
