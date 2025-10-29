@@ -367,6 +367,8 @@ def train_step(
 
         # Optimizer step
         optimizer.step()
+        scheduler.step()
+
     # Add gradient monitoring
     if step % 100 == 0:
         grad_norms = []
@@ -385,7 +387,6 @@ def train_step(
                 print(f"WARNING: High gradient norm detected: {max_grad_norm:.4f}")
                 # Could implement adaptive clipping here
 
-        scheduler.step()
         optimizer.zero_grad()
 
     return metrics
