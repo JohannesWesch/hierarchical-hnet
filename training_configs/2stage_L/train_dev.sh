@@ -42,6 +42,7 @@ python scripts/train_fixed.py \
     --save-interval "$SAVE_INTERVAL" \
     --eval-interval "$EVAL_INTERVAL" \
     --log-interval "$LOG_INTERVAL" \
-    --dtype "$DTYPE"
+    --dtype "$DTYPE" \
+    --backend "$BACKEND"
 
 echo "Training completed!"
