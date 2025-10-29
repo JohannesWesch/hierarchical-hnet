@@ -212,8 +212,8 @@ All training configurations include the following stability improvements:
 
 ## 📝 Notes
 
-- All scripts use `train_fixed.py` with diagnostic improvements
+- All scripts use `train.py` with diagnostic improvements
 - Chinese and Code model configs remain in `configs/` folder
-- Main training script stays in `scripts/train_fixed.py`
+- Main training script stays in `scripts/train.py`
 - Hyperparameters are easily adjustable per model type
 - Both cluster and dev scripts share the same configuration

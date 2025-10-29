@@ -60,6 +60,25 @@ def load_from_pretrained(model_path: str, model_config_path: str):
     return model
 
 
+def apply_repetition_penalty(logits, input_ids, penalty=1.1):
+    """Apply repetition penalty to logits."""
+    if penalty == 1.0:
+        return logits
+
+    # Get unique tokens from input
+    unique_tokens = torch.unique(input_ids)
+
+    # Apply penalty to repeated tokens
+    for token in unique_tokens:
+        if token < logits.size(-1):
+            if logits[token] < 0:
+                logits[token] *= penalty
+            else:
+                logits[token] /= penalty
+
+    return logits
+
+
 def generate(
     model,
     prompt: str,
@@ -95,6 +114,7 @@ def generate(
         output = model.forward(input_ids, mask=mask, inference_params=inference_cache)
 
     logits = output.logits[0, -1, :] / temperature
+    logits = apply_repetition_penalty(logits, input_ids, penalty=1.1)
 
     for _ in range(max_tokens):
         # Apply top-p sampling
@@ -124,6 +144,7 @@ def generate(
 
         # Get logits and apply temperature
         logits = output.logits[0, -1, :] / temperature
+        logits = apply_repetition_penalty(logits, input_ids, penalty=1.1)
 
 
 def main():
@@ -143,19 +164,19 @@ def main():
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=1024,
+        default=2048,
         help="Maximum number of tokens to generate (default: 1024)",
     )
     parser.add_argument(
         "--temperature",
         type=float,
-        default=1.0,
+        default=0.8,
         help="Sampling temperature (default: 1.0)",
     )
     parser.add_argument(
         "--top-p",
         type=float,
-        default=1.0,
+        default=0.9,
         help="Top-p sampling parameter (default: 1.0)",
     )
     args = parser.parse_args()

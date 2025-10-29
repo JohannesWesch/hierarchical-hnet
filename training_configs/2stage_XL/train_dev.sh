@@ -28,7 +28,7 @@ echo "Training steps: $NUM_TRAINING_STEPS"
 echo "Data type: $DTYPE"
 
 # Run training on dev GPU
-python scripts/train_fixed.py \
+python scripts/train.py \
     --config-path "$MODEL_CONFIG" \
     --output-dir "$OUTPUT_DIR" \
     --learning-rate "$LEARNING_RATE" \

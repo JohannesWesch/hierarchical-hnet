@@ -69,7 +69,7 @@ nvidia-smi
 
 # Run distributed training with diagnostic fixes
 echo "Starting distributed training with fixed hyperparameters..."
-srun python scripts/train_fixed.py \
+srun python scripts/train.py \
     --distributed \
     --config-path "$MODEL_CONFIG" \
     --output-dir "$OUTPUT_DIR" \
