@@ -12,6 +12,7 @@ import glob
 import json
 import logging
 import os
+import tempfile
 import time
 from typing import Any, Dict, Optional
 
@@ -132,9 +133,10 @@ def save_checkpoint(
     metrics: Optional[Dict[str, float]] = None,
     keep_last_n: int = 3,
     logger: Optional[logging.Logger] = None,
+    max_retries: int = 3,
 ):
     """
-    Save training checkpoint and clean up old checkpoints.
+    Save training checkpoint and clean up old checkpoints with retry logic.
 
     Args:
         model: H-Net model (can be wrapped with DDP)
@@ -146,6 +148,7 @@ def save_checkpoint(
         metrics: Training metrics to save
         keep_last_n: Number of recent checkpoints to keep (default: 3)
         logger: Logger instance for reporting actions
+        max_retries: Maximum number of retry attempts (default: 3)
     """
     # Only save on main process to avoid conflicts
     try:
@@ -178,18 +181,69 @@ def save_checkpoint(
     if config is not None:
         checkpoint["config"] = config
 
-    # Save checkpoint
+    # Save checkpoint with retry logic
     checkpoint_path = os.path.join(output_dir, f"checkpoint_{step}.pt")
-    torch.save(checkpoint, checkpoint_path)
 
-    if logger:
-        logger.info(f"Saved checkpoint to {checkpoint_path}")
+    for attempt in range(max_retries):
+        try:
+            # Use atomic write: save to temp file first, then rename
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=output_dir, prefix=f"checkpoint_{step}_", suffix=".pt.tmp"
+            )
+            os.close(temp_fd)  # Close the file descriptor, we'll use the path
+
+            # Save to temporary file
+            torch.save(checkpoint, temp_path)
+
+            # Verify the file was written correctly by checking size
+            if os.path.getsize(temp_path) == 0:
+                raise RuntimeError("Checkpoint file is empty after write")
+
+            # Atomic rename (overwrites if checkpoint already exists)
+            os.replace(temp_path, checkpoint_path)
+
+            if logger:
+                checkpoint_size_gb = os.path.getsize(checkpoint_path) / (1024**3)
+                logger.info(
+                    f"Saved checkpoint to {checkpoint_path} " f"({checkpoint_size_gb:.2f} GB)"
+                )
+
+            # Success! Break out of retry loop
+            break
+
+        except (OSError, RuntimeError) as e:
+            # Clean up temp file if it exists
+            if "temp_path" in locals() and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+            if attempt < max_retries - 1:
+                wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
+                if logger:
+                    logger.warning(
+                        f"Checkpoint save attempt {attempt + 1}/{max_retries} failed: {e}"
+                    )
+                    logger.warning(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                # Final attempt failed
+                if logger:
+                    logger.error(f"Failed to save checkpoint after {max_retries} attempts: {e}")
+                    logger.error("Training will continue, but this checkpoint was not saved!")
+                # Don't crash the training - just continue without this checkpoint
+                return
 
     # Save config separately for easy access
     if config is not None:
         config_path = os.path.join(output_dir, "config.json")
-        with open(config_path, "w") as f:
-            json.dump(config, f, indent=2)
+        try:
+            with open(config_path, "w") as f:
+                json.dump(config, f, indent=2)
+        except OSError as e:
+            if logger:
+                logger.warning(f"Failed to save config.json: {e}")
 
     # Clean up old checkpoints
     cleanup_old_checkpoints(output_dir, keep_last_n, logger)
