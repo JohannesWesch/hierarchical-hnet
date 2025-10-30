@@ -25,14 +25,14 @@ fi
 # Activate uv virtual environment
 source .venv/bin/activate
 
-# Load hyperparameters
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HYPERPARAMS="$SCRIPT_DIR/hyperparams.json"
+# Ensure we run from the submission directory so relative paths resolve
+cd "$SLURM_SUBMIT_DIR" || exit
 
 # Source the hyperparameter loading function
-source "$(dirname "$SCRIPT_DIR")/load_hyperparams.sh"
+source training_configs/load_hyperparams.sh
 
 # Load hyperparameters
+HYPERPARAMS="training_configs/1stage_L/hyperparams.json"
 load_hyperparams "$HYPERPARAMS"
 
 # Set environment variables for distributed training
