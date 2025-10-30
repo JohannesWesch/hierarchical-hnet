@@ -23,6 +23,12 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
     # Pattern to match training step lines
     step_pattern = r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), lb_loss: ([\d.]+), lb_stage_0: ([\d.]+), lb_stage_1: ([\d.]+), grad_norm: ([\d.]+) \| LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+), group_2: ([\d.e-]+), group_3: ([\d.e-]+), group_4: ([\d.e-]+)"
 
+    # Pattern to match validation lines
+    val_pattern = r"Validation metrics: \{'val_loss': ([\d.]+), 'val_ce_loss': ([\d.]+), 'val_lb_loss': ([\d.]+), 'val_perplexity': ([\d.]+)\}"
+
+    # Pattern to extract step number before validation (from "Evaluating at step X")
+    eval_step_pattern = r"Evaluating at step (\d+)"
+
     metrics = {
         "steps": [],
         "total_loss": [],
@@ -37,10 +43,23 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
         "lr_group_3": [],
         "lr_group_4": [],
         "perplexity": [],
+        "val_steps": [],
+        "val_loss": [],
+        "val_ce_loss": [],
+        "val_lb_loss": [],
+        "val_perplexity": [],
     }
+
+    current_eval_step = None
 
     with open(log_path, "r") as f:
         for line in f:
+            # Check for evaluation step marker
+            eval_match = re.search(eval_step_pattern, line)
+            if eval_match:
+                current_eval_step = int(eval_match.group(1))
+
+            # Check for training step
             match = re.search(step_pattern, line)
             if match:
                 step = int(match.group(1))
@@ -70,6 +89,22 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
                 metrics["lr_group_4"].append(lr_group_4)
                 metrics["perplexity"].append(np.exp(ce_loss))
 
+            # Check for validation metrics
+            val_match = re.search(val_pattern, line)
+            if val_match and current_eval_step is not None:
+                val_loss = float(val_match.group(1))
+                val_ce_loss = float(val_match.group(2))
+                val_lb_loss = float(val_match.group(3))
+                val_perplexity = float(val_match.group(4))
+
+                metrics["val_steps"].append(current_eval_step)
+                metrics["val_loss"].append(val_loss)
+                metrics["val_ce_loss"].append(val_ce_loss)
+                metrics["val_lb_loss"].append(val_lb_loss)
+                metrics["val_perplexity"].append(val_perplexity)
+
+                current_eval_step = None  # Reset after capturing
+
     return metrics
 
 
@@ -85,12 +120,38 @@ def plot_loss_curves(metrics: Dict[str, List[float]], save_path: str = None):
     axes[0, 0].grid(True, alpha=0.3)
     axes[0, 0].legend()
 
-    # CE Loss and Perplexity
+    # CE Loss and Perplexity (with validation)
     ax1 = axes[0, 1]
     ax2 = ax1.twinx()
 
-    line1 = ax1.plot(metrics["steps"], metrics["ce_loss"], "g-", label="CE Loss", alpha=0.7)
-    line2 = ax2.plot(metrics["steps"], metrics["perplexity"], "r-", label="Perplexity", alpha=0.7)
+    line1 = ax1.plot(metrics["steps"], metrics["ce_loss"], "g-", label="Train CE Loss", alpha=0.7)
+    line2 = ax2.plot(
+        metrics["steps"], metrics["perplexity"], "r-", label="Train Perplexity", alpha=0.7
+    )
+
+    # Add validation metrics if available
+    if metrics["val_steps"]:
+        line3 = ax1.plot(
+            metrics["val_steps"],
+            metrics["val_ce_loss"],
+            "g--",
+            marker="o",
+            label="Val CE Loss",
+            alpha=0.8,
+            markersize=6,
+        )
+        line4 = ax2.plot(
+            metrics["val_steps"],
+            metrics["val_perplexity"],
+            "r--",
+            marker="s",
+            label="Val Perplexity",
+            alpha=0.8,
+            markersize=6,
+        )
+        lines = line1 + line2 + line3 + line4
+    else:
+        lines = line1 + line2
 
     ax1.set_xlabel("Training Step")
     ax1.set_ylabel("CE Loss", color="g")
@@ -99,7 +160,6 @@ def plot_loss_curves(metrics: Dict[str, List[float]], save_path: str = None):
     ax1.grid(True, alpha=0.3)
 
     # Combine legends
-    lines = line1 + line2
     labels = [line.get_label() for line in lines]
     ax1.legend(lines, labels, loc="upper right")
 
@@ -180,6 +240,27 @@ def analyze_metrics(metrics: Dict[str, List[float]]):
     print(f"Initial perplexity: {metrics['perplexity'][0]:.2f}")
     print(f"Final perplexity: {metrics['perplexity'][-1]:.2f}")
 
+    # Validation metrics if available
+    if metrics["val_steps"]:
+        print("\n=== VALIDATION ANALYSIS ===")
+        print(f"Number of validation runs: {len(metrics['val_steps'])}")
+        print(f"Initial validation loss: {metrics['val_loss'][0]:.4f}")
+        print(f"Final validation loss: {metrics['val_loss'][-1]:.4f}")
+        print(f"Initial validation perplexity: {metrics['val_perplexity'][0]:.2f}")
+        print(f"Final validation perplexity: {metrics['val_perplexity'][-1]:.2f}")
+
+        # Compare train vs val
+        final_train_loss = metrics["ce_loss"][-1]
+        final_val_loss = metrics["val_ce_loss"][-1]
+        gap = final_val_loss - final_train_loss
+        print(f"\nTrain-Val gap (CE loss): {gap:.4f}")
+        if gap > 0.5:
+            print("  ⚠️  Large gap suggests overfitting")
+        elif gap < 0:
+            print("  ✅ Val loss better than train (good generalization)")
+        else:
+            print("  ✅ Small gap (good generalization)")
+
     # Load balancing analysis
     print("\n=== LOAD BALANCING ANALYSIS ===")
     print(f"Final total LB loss: {metrics['lb_loss'][-1]:.4f}")
@@ -218,9 +299,18 @@ def analyze_metrics(metrics: Dict[str, List[float]]):
         print("⚠️  WARNING: Final perplexity is very high (>10)")
         print("   This suggests the model hasn't learned well")
 
-    # Check for gradient explosion
-    if max(metrics["grad_norm"]) > 10:
-        print("⚠️  WARNING: Gradient norms are very high (>10)")
+    # Check for gradient explosion (ignore initial spike, check recent behavior)
+    recent_grad_norms = (
+        metrics["grad_norm"][-100:]
+        if len(metrics["grad_norm"]) > 100
+        else metrics["grad_norm"][10:]
+    )
+    avg_recent_grad = np.mean(recent_grad_norms) if recent_grad_norms else 0
+    max_recent_grad = max(recent_grad_norms) if recent_grad_norms else 0
+
+    if avg_recent_grad > 15 or max_recent_grad > 50:
+        print("⚠️  WARNING: Gradient norms are very high")
+        print(f"   Recent average: {avg_recent_grad:.2f}, Recent max: {max_recent_grad:.2f}")
         print("   This suggests potential gradient explosion")
 
     # Check for loss plateau
