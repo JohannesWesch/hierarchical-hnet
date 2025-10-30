@@ -534,6 +534,8 @@ def train(
                         step + 1,
                         args.output_dir,
                         metrics=metrics,
+                        keep_last_n=3,
+                        logger=logger,
                     )
 
                 # Evaluation
@@ -565,6 +567,8 @@ def train(
         step,
         args.output_dir,
         metrics={"final": True},
+        keep_last_n=3,
+        logger=logger,
     )
 
     if not args.distributed or is_main_process():

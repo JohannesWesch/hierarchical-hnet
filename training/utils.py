@@ -8,6 +8,7 @@ This module provides utilities for:
 - Learning rate scheduling
 """
 
+import glob
 import json
 import logging
 import os
@@ -65,6 +66,62 @@ def setup_logging(output_dir: str, rank: int = 0) -> logging.Logger:
     return logger
 
 
+def cleanup_old_checkpoints(
+    output_dir: str, keep_last_n: int = 3, logger: Optional[logging.Logger] = None
+):
+    """
+    Clean up old checkpoints, keeping only the most recent ones.
+
+    Args:
+        output_dir: Directory containing checkpoints
+        keep_last_n: Number of recent checkpoints to keep (default: 3)
+        logger: Logger instance for reporting cleanup actions
+    """
+    # Only cleanup on main process to avoid race conditions
+    try:
+        from training.distributed import is_main_process
+
+        if not is_main_process():
+            return
+    except ImportError:
+        pass  # Not in distributed mode
+
+    # Find all checkpoint files
+    checkpoint_pattern = os.path.join(output_dir, "checkpoint_*.pt")
+    checkpoint_files = glob.glob(checkpoint_pattern)
+
+    if len(checkpoint_files) <= keep_last_n:
+        return  # Nothing to clean up
+
+    # Sort by modification time (newest first)
+    checkpoint_files.sort(key=os.path.getmtime, reverse=True)
+
+    # Delete old checkpoints
+    files_to_delete = checkpoint_files[keep_last_n:]
+    deleted_count = 0
+    freed_space = 0
+
+    for checkpoint_path in files_to_delete:
+        try:
+            file_size = os.path.getsize(checkpoint_path)
+            os.remove(checkpoint_path)
+            deleted_count += 1
+            freed_space += file_size
+
+            if logger:
+                logger.info(f"Deleted old checkpoint: {os.path.basename(checkpoint_path)}")
+        except OSError as e:
+            if logger:
+                logger.warning(f"Failed to delete {checkpoint_path}: {e}")
+
+    if deleted_count > 0 and logger:
+        freed_gb = freed_space / (1024**3)
+        logger.info(
+            f"Checkpoint cleanup: deleted {deleted_count} old checkpoint(s), "
+            f"freed {freed_gb:.2f} GB"
+        )
+
+
 def save_checkpoint(
     model: HNetForCausalLM,
     optimizer: Optimizer,
@@ -73,9 +130,11 @@ def save_checkpoint(
     output_dir: str,
     config: Optional[Dict[str, Any]] = None,
     metrics: Optional[Dict[str, float]] = None,
+    keep_last_n: int = 3,
+    logger: Optional[logging.Logger] = None,
 ):
     """
-    Save training checkpoint.
+    Save training checkpoint and clean up old checkpoints.
 
     Args:
         model: H-Net model (can be wrapped with DDP)
@@ -85,6 +144,8 @@ def save_checkpoint(
         output_dir: Directory to save checkpoint
         config: Model configuration
         metrics: Training metrics to save
+        keep_last_n: Number of recent checkpoints to keep (default: 3)
+        logger: Logger instance for reporting actions
     """
     # Only save on main process to avoid conflicts
     try:
@@ -121,11 +182,17 @@ def save_checkpoint(
     checkpoint_path = os.path.join(output_dir, f"checkpoint_{step}.pt")
     torch.save(checkpoint, checkpoint_path)
 
+    if logger:
+        logger.info(f"Saved checkpoint to {checkpoint_path}")
+
     # Save config separately for easy access
     if config is not None:
         config_path = os.path.join(output_dir, "config.json")
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
+
+    # Clean up old checkpoints
+    cleanup_old_checkpoints(output_dir, keep_last_n, logger)
 
 
 def load_checkpoint(

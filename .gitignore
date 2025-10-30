@@ -200,3 +200,4 @@ cython_debug/
 # Model outputs and checkpoints
 outputs/
 logs/
+analysis_output/
