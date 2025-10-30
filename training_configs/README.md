@@ -61,11 +61,11 @@ sbatch training_configs/1stage_L/train_cluster.sh
 #SBATCH --time=48:00:00
 ```
 
-# gpu_a100_il
+# gpu_a100_short
 ```bash
-#SBATCH --partition=gpu_a100_il
-#SBATCH --mem=510000mb
-#SBATCH --time=48:00:00
+#SBATCH --partition=gpu_a100_short
+#SBATCH --mem=376000mb
+#SBATCH --time=00:30:00
 ```
 
 ### Dev GPU Training
