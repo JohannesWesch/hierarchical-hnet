@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=hnet-2stage-XL
-#SBATCH --partition=gpu_h100
+#SBATCH --partition=gpu_h100_il
+#SBATCH --mem=510000mb
+#SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=24
-#SBATCH --mem=760000mb
-#SBATCH --time=12:00:00
 #SBATCH --output=logs/training_2stage_XL_%j.out
 #SBATCH --error=logs/training_2stage_XL_%j.err
 

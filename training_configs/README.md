@@ -46,6 +46,21 @@ sbatch training_configs/1stage_XL/train_cluster.sh
 sbatch training_configs/1stage_L/train_cluster.sh
 ```
 
+### Select different GPUS
+# gpu_h100
+```bash
+#SBATCH --partition=gpu_h100
+#SBATCH --mem=760000mb
+#SBATCH --time=72:00:00
+```
+
+# gpu_h100_il
+```bash
+#SBATCH --partition=gpu_h100_il
+#SBATCH --mem=510000mb
+#SBATCH --time=48:00:00
+```
+
 ### Dev GPU Training
 
 Run training directly on your development GPU:
