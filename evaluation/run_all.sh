@@ -2,10 +2,14 @@
 # Run full evaluation suite for H-Net models
 #
 # Usage:
-#   ./evaluation/run_all.sh MODEL_PATH CONFIG_PATH [OUTPUT_DIR]
+#   ./evaluation/run_all.sh MODEL_PATH CONFIG_PATH [OUTPUT_DIR] [LIMIT]
 #
-# Example:
-#   ./evaluation/run_all.sh outputs/hnet_1stage_L/checkpoint_10000.pt configs/hnet_1stage_L.json results
+# Examples:
+#   # Full evaluation
+#   ./evaluation/run_all.sh outputs/hnet_1stage_L/checkpoint_10000.pt configs/hnet_1stage_L.json
+#
+#   # Quick test with 100 samples per task
+#   ./evaluation/run_all.sh outputs/hnet_1stage_L/checkpoint_10000.pt configs/hnet_1stage_L.json results_test 100
 
 set -e  # Exit on error
 
@@ -13,18 +17,24 @@ set -e  # Exit on error
 MODEL_PATH=$1
 CONFIG_PATH=$2
 OUTPUT_DIR=${3:-"evaluation_results"}
+LIMIT=${4:-""}
 
 # Validate arguments
 if [ -z "$MODEL_PATH" ] || [ -z "$CONFIG_PATH" ]; then
-    echo "Usage: $0 MODEL_PATH CONFIG_PATH [OUTPUT_DIR]"
+    echo "Usage: $0 MODEL_PATH CONFIG_PATH [OUTPUT_DIR] [LIMIT]"
     echo ""
     echo "Arguments:"
     echo "  MODEL_PATH    Path to model checkpoint (.pt file)"
     echo "  CONFIG_PATH   Path to model configuration (.json file)"
     echo "  OUTPUT_DIR    Directory to save results (default: evaluation_results)"
+    echo "  LIMIT         Max samples per task (default: none = full evaluation)"
     echo ""
-    echo "Example:"
+    echo "Examples:"
+    echo "  # Full evaluation"
     echo "  $0 outputs/hnet_1stage_L/checkpoint_10000.pt configs/hnet_1stage_L.json"
+    echo ""
+    echo "  # Quick test with 100 samples per task"
+    echo "  $0 outputs/hnet_1stage_L/checkpoint_10000.pt configs/hnet_1stage_L.json results_test 100"
     exit 1
 fi
 
@@ -48,6 +58,11 @@ echo "================================================================"
 echo "Model:      $MODEL_PATH"
 echo "Config:     $CONFIG_PATH"
 echo "Output dir: $OUTPUT_DIR"
+if [ -n "$LIMIT" ]; then
+    echo "Limit:      $LIMIT samples per task"
+else
+    echo "Limit:      Full evaluation (no limit)"
+fi
 echo "================================================================"
 echo ""
 
@@ -68,12 +83,19 @@ echo ""
 # Run downstream evaluation
 echo "[2/2] Running downstream zero-shot tasks..."
 echo "----------------------------------------------------------------"
-uv run python -m evaluation.evaluate_downstream \
-    --model-path "$MODEL_PATH" \
-    --config-path "$CONFIG_PATH" \
-    --tasks "lambada_openai,hellaswag,piqa,arc_easy,arc_challenge,winogrande,openbookqa" \
+DOWNSTREAM_CMD="uv run python -m evaluation.evaluate_downstream \
+    --model-path \"$MODEL_PATH\" \
+    --config-path \"$CONFIG_PATH\" \
+    --tasks \"lambada_openai,hellaswag,piqa,arc_easy,arc_challenge,winogrande,openbookqa\" \
     --batch-size 1 \
-    --output "$OUTPUT_DIR/downstream_results.json"
+    --output \"$OUTPUT_DIR/downstream_results.json\""
+
+# Add limit if specified
+if [ -n "$LIMIT" ]; then
+    DOWNSTREAM_CMD="$DOWNSTREAM_CMD --limit $LIMIT"
+fi
+
+eval "$DOWNSTREAM_CMD"
 
 echo ""
 echo "✓ Downstream evaluation complete!"
