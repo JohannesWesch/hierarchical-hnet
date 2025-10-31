@@ -22,6 +22,7 @@ dependencies = [
     "omegaconf",
     "python-dotenv",
     "matplotlib>=3.9.4",
+    "lm-eval>=0.4.9.1",
 ]
 
 [project.optional-dependencies]
