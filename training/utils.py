@@ -330,21 +330,44 @@ def get_lr_scheduler(
     num_warmup_steps: int,
     num_training_steps: int,
     scheduler_type: str = "cosine",
+    min_lr_ratio: float = 0.0,
+    warmup_ratio: float = None,
+    stable_ratio: float = None,
+    decay_ratio: float = None,
+    decay_type: str = "inverse_sqrt",
 ) -> LambdaLR:
     """
     Create learning rate scheduler.
 
     Args:
         optimizer: Optimizer
-        num_warmup_steps: Number of warmup steps
+        num_warmup_steps: Number of warmup steps (used if warmup_ratio not provided)
         num_training_steps: Total number of training steps
-        scheduler_type: Type of scheduler ('cosine', 'linear', 'constant')
+        scheduler_type: Type of scheduler ('cosine', 'linear', 'constant', 'wsd')
+        min_lr_ratio: Minimum learning rate as a ratio of the base LR (default: 0.0)
+        warmup_ratio: Warmup phase ratio (for WSD scheduler)
+        stable_ratio: Stable phase ratio (for WSD scheduler)
+        decay_ratio: Decay phase ratio (for WSD scheduler)
+        decay_type: Type of decay for WSD ('inverse_sqrt', 'linear', 'cosine')
 
     Returns:
         Learning rate scheduler
     """
     if scheduler_type == "cosine":
-        return get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
+        return get_cosine_schedule_with_warmup(
+            optimizer, num_warmup_steps, num_training_steps, min_lr_ratio=min_lr_ratio
+        )
+    elif scheduler_type == "wsd":
+        # WSD (Warmup-Stable-Decay) scheduler
+        return get_wsd_schedule(
+            optimizer,
+            num_training_steps,
+            warmup_ratio=warmup_ratio or 0.1,
+            stable_ratio=stable_ratio or 0.7,
+            decay_ratio=decay_ratio or 0.2,
+            decay_type=decay_type,
+            min_lr_ratio=min_lr_ratio,
+        )
     elif scheduler_type == "linear":
         return get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
     elif scheduler_type == "constant":
@@ -364,6 +387,7 @@ def get_cosine_schedule_with_warmup(
     num_warmup_steps: int,
     num_training_steps: int,
     num_cycles: float = 0.5,
+    min_lr_ratio: float = 0.0,
     last_epoch: int = -1,
 ) -> LambdaLR:
     """
@@ -374,6 +398,7 @@ def get_cosine_schedule_with_warmup(
         num_warmup_steps: Number of warmup steps
         num_training_steps: Total training steps
         num_cycles: Number of cosine cycles
+        min_lr_ratio: Minimum learning rate as a ratio of base LR (e.g., 0.1 means decay to 10% of base LR)
         last_epoch: Last epoch for resuming
 
     Returns:
@@ -390,7 +415,94 @@ def get_cosine_schedule_with_warmup(
         progress = float(current_step - num_warmup_steps) / float(
             max(1, num_training_steps - num_warmup_steps)
         )
-        return max(0.0, 0.5 * (1.0 + math.cos(math.pi * float(num_cycles) * 2.0 * progress)))
+        # Decay from 1.0 to min_lr_ratio using cosine
+        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * float(num_cycles) * 2.0 * progress))
+        # Scale to range [min_lr_ratio, 1.0]
+        return max(min_lr_ratio, min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay)
+
+    return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+
+def get_wsd_schedule(
+    optimizer: Optimizer,
+    num_training_steps: int,
+    warmup_ratio: float = 0.1,
+    stable_ratio: float = 0.7,
+    decay_ratio: float = 0.2,
+    decay_type: str = "inverse_sqrt",
+    min_lr_ratio: float = 0.0,
+    last_epoch: int = -1,
+) -> LambdaLR:
+    """
+    Create WSD (Warmup-Stable-Decay) learning rate scheduler.
+
+    This scheduler has three phases:
+    1. Warmup: Linear warmup from 0 to max LR
+    2. Stable: Constant LR at max value
+    3. Decay: Gradual decay to min_lr using specified decay type
+
+    Args:
+        optimizer: Optimizer
+        num_training_steps: Total training steps
+        warmup_ratio: Fraction of steps for warmup phase (default: 0.1)
+        stable_ratio: Fraction of steps for stable phase (default: 0.7)
+        decay_ratio: Fraction of steps for decay phase (default: 0.2)
+        decay_type: Type of decay ('inverse_sqrt', 'linear', 'cosine')
+        min_lr_ratio: Minimum learning rate as ratio of base LR (default: 0.0)
+        last_epoch: Last epoch for resuming
+
+    Returns:
+        WSD scheduler
+    """
+    import math
+
+    # Validate ratios
+    assert (
+        abs(warmup_ratio + stable_ratio + decay_ratio - 1.0) < 1e-6
+    ), f"Ratios must sum to 1.0, got {warmup_ratio + stable_ratio + decay_ratio}"
+
+    warmup_steps = int(num_training_steps * warmup_ratio)
+    stable_steps = int(num_training_steps * stable_ratio)
+    decay_steps = num_training_steps - warmup_steps - stable_steps
+
+    stable_end = warmup_steps + stable_steps
+
+    def lr_lambda(current_step: int):
+        # Phase 1: Warmup
+        if current_step < warmup_steps:
+            return float(current_step) / float(max(1, warmup_steps))
+
+        # Phase 2: Stable (constant at max LR)
+        if current_step < stable_end:
+            return 1.0
+
+        # Phase 3: Decay
+        decay_progress = float(current_step - stable_end) / float(max(1, decay_steps))
+
+        if decay_type == "inverse_sqrt":
+            # Inverse square root decay: 1/sqrt(1 + k*progress)
+            # Adjust k to reach min_lr_ratio at the end
+            # At progress=1: min_lr_ratio = 1/sqrt(1 + k)
+            # Solving: k = (1/min_lr_ratio)^2 - 1
+            if min_lr_ratio > 0:
+                k = (1.0 / min_lr_ratio) ** 2 - 1
+            else:
+                k = 99.0  # Large k for steep decay if min_lr_ratio is 0
+
+            decay_value = 1.0 / math.sqrt(1.0 + k * decay_progress)
+            return max(min_lr_ratio, decay_value)
+
+        elif decay_type == "linear":
+            # Linear decay from 1.0 to min_lr_ratio
+            return max(min_lr_ratio, 1.0 - (1.0 - min_lr_ratio) * decay_progress)
+
+        elif decay_type == "cosine":
+            # Cosine decay from 1.0 to min_lr_ratio
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * decay_progress))
+            return max(min_lr_ratio, min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay)
+
+        else:
+            raise ValueError(f"Unknown decay_type: {decay_type}")
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 

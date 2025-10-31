@@ -2,10 +2,10 @@
 #SBATCH --job-name=hnet-1stage-L
 #SBATCH --partition=gpu_h100_il
 #SBATCH --mem=510000mb
-#SBATCH --time=48:00:00
+#SBATCH --time=12:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=24
 #SBATCH --output=logs/training_1stage_L_%j.out
 #SBATCH --error=logs/training_1stage_L_%j.err
@@ -67,24 +67,60 @@ export CUDA_VISIBLE_DEVICES=$SLURM_LOCALID
 echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 nvidia-smi
 
-# Run distributed training with diagnostic fixes
-echo "Starting distributed training with fixed hyperparameters..."
-srun python scripts/train.py \
-    --distributed \
-    --config-path "$MODEL_CONFIG" \
-    --output-dir "$OUTPUT_DIR" \
-    --learning-rate "$LEARNING_RATE" \
-    --lr-multipliers "$LR_MULTIPLIERS" \
-    --warmup-steps "$WARMUP_STEPS" \
-    --max-grad-norm "$MAX_GRAD_NORM" \
-    --batch-size "$BATCH_SIZE" \
-    --gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS" \
-    --max-seq-length "$MAX_SEQ_LENGTH" \
-    --num-training-steps "$NUM_TRAINING_STEPS" \
-    --save-interval "$SAVE_INTERVAL" \
-    --eval-interval "$EVAL_INTERVAL" \
-    --log-interval "$LOG_INTERVAL" \
-    --dtype "$DTYPE" \
-    --backend "$BACKEND"
+# Run distributed training with WSD scheduler
+echo "Starting distributed training with WSD scheduler..."
+
+# Build command with required args
+CMD="srun python scripts/train.py \
+    --config-path $MODEL_CONFIG \
+    --output-dir $OUTPUT_DIR \
+    --learning-rate $LEARNING_RATE \
+    --lr-multipliers $LR_MULTIPLIERS \
+    --lr-scheduler $LR_SCHEDULER \
+    --min-lr $MIN_LR \
+    --max-grad-norm $MAX_GRAD_NORM \
+    --weight-decay $WEIGHT_DECAY \
+    --load-balancing-weight $LOAD_BALANCING_WEIGHT \
+    --adam-beta1 $ADAM_BETA1 \
+    --adam-beta2 $ADAM_BETA2 \
+    --adam-eps $ADAM_EPS \
+    --batch-size $BATCH_SIZE \
+    --gradient-accumulation-steps $GRADIENT_ACCUMULATION_STEPS \
+    --max-seq-length $MAX_SEQ_LENGTH \
+    --num-training-steps $NUM_TRAINING_STEPS \
+    --save-interval $SAVE_INTERVAL \
+    --eval-interval $EVAL_INTERVAL \
+    --log-interval $LOG_INTERVAL \
+    --dtype $DTYPE \
+    --backend $BACKEND \
+    --label-smoothing $LABEL_SMOOTHING"
+
+# Add WSD-specific parameters if set
+if [ "$WARMUP_RATIO" != "None" ]; then
+    CMD="$CMD --warmup-ratio $WARMUP_RATIO"
+fi
+if [ "$STABLE_RATIO" != "None" ]; then
+    CMD="$CMD --stable-ratio $STABLE_RATIO"
+fi
+if [ "$DECAY_RATIO" != "None" ]; then
+    CMD="$CMD --decay-ratio $DECAY_RATIO"
+fi
+if [ "$DECAY_TYPE" != "None" ]; then
+    CMD="$CMD --decay-type $DECAY_TYPE"
+fi
+
+# Add optional parameters if set
+if [ "$EMA_DECAY" != "None" ]; then
+    CMD="$CMD --ema-decay $EMA_DECAY"
+fi
+if [ "$DROPOUT" != "None" ]; then
+    CMD="$CMD --dropout $DROPOUT"
+fi
+if [ "$SCALE_LR_BY_WORLD_SIZE" = "true" ]; then
+    CMD="$CMD --scale-lr-by-world-size"
+fi
+
+# Execute training
+eval "$CMD"
 
 echo "Training completed!"

@@ -127,8 +127,88 @@ def parse_args():
     parser.add_argument(
         "--warmup-steps",
         type=int,
-        required=True,
-        help="Number of warmup steps",
+        default=None,
+        help="Number of warmup steps (deprecated, use warmup-ratio instead)",
+    )
+    parser.add_argument(
+        "--lr-scheduler",
+        type=str,
+        default="cosine",
+        choices=["cosine", "wsd", "linear", "constant"],
+        help="Learning rate scheduler type",
+    )
+    parser.add_argument(
+        "--warmup-ratio",
+        type=float,
+        default=None,
+        help="Warmup ratio for WSD scheduler (e.g., 0.1 for 10% warmup)",
+    )
+    parser.add_argument(
+        "--stable-ratio",
+        type=float,
+        default=None,
+        help="Stable ratio for WSD scheduler (e.g., 0.7 for 70% stable)",
+    )
+    parser.add_argument(
+        "--decay-ratio",
+        type=float,
+        default=None,
+        help="Decay ratio for WSD scheduler (e.g., 0.2 for 20% decay)",
+    )
+    parser.add_argument(
+        "--decay-type",
+        type=str,
+        default="inverse_sqrt",
+        choices=["inverse_sqrt", "linear", "cosine"],
+        help="Decay type for WSD scheduler",
+    )
+    parser.add_argument(
+        "--min-lr",
+        type=float,
+        default=1e-5,
+        help="Minimum learning rate",
+    )
+    parser.add_argument(
+        "--adam-beta1",
+        type=float,
+        default=0.9,
+        help="Adam optimizer beta1 parameter",
+    )
+    parser.add_argument(
+        "--adam-beta2",
+        type=float,
+        default=0.95,
+        help="Adam optimizer beta2 parameter",
+    )
+    parser.add_argument(
+        "--adam-eps",
+        type=float,
+        default=1e-8,
+        help="Adam optimizer epsilon parameter",
+    )
+    parser.add_argument(
+        "--label-smoothing",
+        type=float,
+        default=0.0,
+        help="Label smoothing parameter for cross-entropy loss",
+    )
+    parser.add_argument(
+        "--ema-decay",
+        type=float,
+        default=None,
+        help="EMA decay rate for model weights (e.g., 0.999)",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=None,
+        help="Dropout rate (requires model architecture support)",
+    )
+    parser.add_argument(
+        "--scale-lr-by-world-size",
+        action="store_true",
+        default=False,
+        help="Scale learning rate by world size (default: False for 1-stage models)",
     )
 
     # Optimization settings
@@ -260,6 +340,9 @@ def setup_optimizer(
     model: HNetForCausalLM,
     learning_rate: float,
     weight_decay: float,
+    adam_beta1: float = 0.9,
+    adam_beta2: float = 0.95,
+    adam_eps: float = 1e-8,
 ) -> AdamW:
     """Setup optimizer with grouped parameters."""
     # Group parameters with lr_multipliers (already applied via apply_lr_multiplier)
@@ -274,7 +357,7 @@ def setup_optimizer(
         group["lr"] = learning_rate * lr_mult
 
     # Create optimizer (don't pass lr here since we set it per group)
-    optimizer = AdamW(param_groups, betas=(0.9, 0.95))
+    optimizer = AdamW(param_groups, betas=(adam_beta1, adam_beta2), eps=adam_eps)
 
     return optimizer
 
@@ -479,6 +562,11 @@ def train(
     epoch = 0
     model.train()
 
+    # Log initial LR at start
+    if args.lr_scheduler == "wsd" and (not args.distributed or is_main_process()):
+        initial_lr = optimizer.param_groups[0]["lr"]
+        logger.info(f"🚀 WSD: Starting training at step {step} | Initial LR: {initial_lr:.2e}")
+
     try:
         while step < args.num_training_steps:
             epoch += 1
@@ -520,6 +608,29 @@ def train(
                     if not args.distributed or is_main_process():
                         log_training_stats(
                             step + 1, metrics["loss"], metrics, lrs, step_time, logger
+                        )
+
+                # WSD Phase Boundary Logging
+                if args.lr_scheduler == "wsd" and (not args.distributed or is_main_process()):
+                    warmup_end = int(args.num_training_steps * (args.warmup_ratio or 0.1))
+                    stable_end = warmup_end + int(
+                        args.num_training_steps * (args.stable_ratio or 0.7)
+                    )
+
+                    if step + 1 == warmup_end:
+                        current_lr = optimizer.param_groups[0]["lr"]
+                        logger.info(
+                            f"🔄 WSD: Warmup complete at step {step + 1} | LR: {current_lr:.2e} (entering stable phase)"
+                        )
+                    elif step + 1 == stable_end:
+                        current_lr = optimizer.param_groups[0]["lr"]
+                        logger.info(
+                            f"🔄 WSD: Stable phase complete at step {step + 1} | LR: {current_lr:.2e} (entering decay phase)"
+                        )
+                    elif step + 1 == args.num_training_steps:
+                        current_lr = optimizer.param_groups[0]["lr"]
+                        logger.info(
+                            f"🔄 WSD: Training complete at step {step + 1} | Final LR: {current_lr:.2e}"
                         )
 
                 # Checkpointing
@@ -741,20 +852,65 @@ def main():
     if not args.distributed or is_main_process():
         print("Setting up optimizer and scheduler...")
 
-    # Scale learning rate by world size for distributed training
+    # Optionally scale learning rate by world size for distributed training
     effective_lr = args.learning_rate
-    if args.distributed:
+    if args.distributed and args.scale_lr_by_world_size:
         effective_lr = args.learning_rate * distributed_info["world_size"]
-        if is_main_process():
-            print(f"Scaling learning rate by world_size: {args.learning_rate} -> {effective_lr}")
+        if not args.distributed or is_main_process():
+            print(f"⚠️  Scaling learning rate by world_size: {args.learning_rate} -> {effective_lr}")
+    elif args.distributed:
+        if not args.distributed or is_main_process():
+            print("✅ NOT scaling learning rate by world_size (correct for 1-stage models)")
 
-    optimizer = setup_optimizer(model, effective_lr, args.weight_decay)
+    if not args.distributed or is_main_process():
+        print(f"Base learning rate: {args.learning_rate}")
+        print(f"Effective learning rate: {effective_lr}")
+        print(f"Adam betas: ({args.adam_beta1}, {args.adam_beta2}), eps: {args.adam_eps}")
+        print(f"Min LR: {args.min_lr}")
+        print(f"LR Scheduler: {args.lr_scheduler}")
+        if args.label_smoothing > 0:
+            print(f"Label smoothing: {args.label_smoothing}")
+        if args.ema_decay:
+            print(f"EMA decay: {args.ema_decay}")
+        if args.dropout:
+            print(f"Dropout: {args.dropout} (warning: not implemented in model)")
+
+    optimizer = setup_optimizer(
+        model, effective_lr, args.weight_decay, args.adam_beta1, args.adam_beta2, args.adam_eps
+    )
+
+    # Calculate min_lr_ratio for the scheduler
+    min_lr_ratio = args.min_lr / effective_lr
+
+    # Determine warmup steps
+    if args.lr_scheduler == "wsd":
+        # WSD uses ratios
+        warmup_steps = int(args.num_training_steps * (args.warmup_ratio or 0.1))
+        if not args.distributed or is_main_process():
+            print("WSD Scheduler:")
+            print(f"  Warmup: {args.warmup_ratio or 0.1:.1%} ({warmup_steps} steps)")
+            print(
+                f"  Stable: {args.stable_ratio or 0.7:.1%} ({int(args.num_training_steps * (args.stable_ratio or 0.7))} steps)"
+            )
+            print(
+                f"  Decay: {args.decay_ratio or 0.2:.1%} ({int(args.num_training_steps * (args.decay_ratio or 0.2))} steps)"
+            )
+            print(f"  Decay type: {args.decay_type}")
+    else:
+        warmup_steps = args.warmup_steps or int(args.num_training_steps * 0.1)
+        if not args.distributed or is_main_process():
+            print(f"Warmup steps: {warmup_steps}")
 
     scheduler = get_lr_scheduler(
         optimizer,
-        args.warmup_steps,
+        warmup_steps,
         args.num_training_steps,
-        scheduler_type="cosine",
+        scheduler_type=args.lr_scheduler,
+        min_lr_ratio=min_lr_ratio,
+        warmup_ratio=args.warmup_ratio,
+        stable_ratio=args.stable_ratio,
+        decay_ratio=args.decay_ratio,
+        decay_type=args.decay_type,
     )
 
     # Resume from checkpoint if provided
