@@ -20,9 +20,11 @@ import numpy as np
 def parse_training_log(log_path: str) -> Dict[str, List[float]]:
     """Parse training log and extract metrics."""
 
-    # Flexible pattern for 1-stage models (3 LR groups, 1 stage)
-    # grad_norm is optional (not present on every line)
-    step_pattern_1stage = r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), lb_loss: ([\d.]+), lb_stage_0: ([\d.]+)(?:, grad_norm: ([\d.]+))? \| LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+), group_2: ([\d.e-]+)"
+    # Pattern for 1-stage models with 2 LR groups
+    step_pattern_1stage_2lr = r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), lb_loss: ([\d.]+), lb_stage_0: ([\d.]+)(?:, grad_norm: ([\d.]+))? \| LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+)"
+
+    # Pattern for 1-stage models with 3 LR groups
+    step_pattern_1stage_3lr = r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), lb_loss: ([\d.]+), lb_stage_0: ([\d.]+)(?:, grad_norm: ([\d.]+))? \| LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+), group_2: ([\d.e-]+)"
 
     # Pattern for 2-stage models (5 LR groups, 2 stages)
     step_pattern_2stage = r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), lb_loss: ([\d.]+), lb_stage_0: ([\d.]+), lb_stage_1: ([\d.]+)(?:, grad_norm: ([\d.]+))? \| LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+), group_2: ([\d.e-]+), group_3: ([\d.e-]+), group_4: ([\d.e-]+)"
@@ -103,37 +105,66 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
                 metrics["perplexity"].append(np.exp(ce_loss))
                 continue
 
-            # Try 1-stage pattern
-            match_1stage = re.search(step_pattern_1stage, line)
-            if match_1stage:
+            # Try 1-stage pattern with 3 LR groups
+            match_1stage_3lr = re.search(step_pattern_1stage_3lr, line)
+            if match_1stage_3lr:
                 if is_two_stage is None:
                     is_two_stage = False
-                    print("Detected 1-stage model format")
+                    print("Detected 1-stage model format (3 LR groups)")
 
-                step = int(match_1stage.group(1))
-                total_loss = float(match_1stage.group(2))
-                ce_loss = float(match_1stage.group(4))
-                lb_loss = float(match_1stage.group(5))
-                lb_stage_0 = float(match_1stage.group(6))
-                grad_norm_str = match_1stage.group(7)
+                step = int(match_1stage_3lr.group(1))
+                total_loss = float(match_1stage_3lr.group(2))
+                ce_loss = float(match_1stage_3lr.group(4))
+                lb_loss = float(match_1stage_3lr.group(5))
+                lb_stage_0 = float(match_1stage_3lr.group(6))
+                grad_norm_str = match_1stage_3lr.group(7)
                 grad_norm = float(grad_norm_str) if grad_norm_str else None
-                lr_group_0 = float(match_1stage.group(8))
-                lr_group_1 = float(match_1stage.group(9))
-                lr_group_2 = float(match_1stage.group(10))
+                lr_group_0 = float(match_1stage_3lr.group(8))
+                lr_group_1 = float(match_1stage_3lr.group(9))
+                lr_group_2 = float(match_1stage_3lr.group(10))
 
                 metrics["steps"].append(step)
                 metrics["total_loss"].append(total_loss)
                 metrics["ce_loss"].append(ce_loss)
                 metrics["lb_loss"].append(lb_loss)
                 metrics["lb_stage_0"].append(lb_stage_0)
-                # For 1-stage, stage_1 doesn't exist
                 if grad_norm is not None:
                     metrics["grad_norm"].append(grad_norm)
                     metrics["grad_norm_steps"].append(step)
                 metrics["lr_group_0"].append(lr_group_0)
                 metrics["lr_group_1"].append(lr_group_1)
                 metrics["lr_group_2"].append(lr_group_2)
-                # For 1-stage, groups 3 and 4 don't exist
+                metrics["perplexity"].append(np.exp(ce_loss))
+                continue
+
+            # Try 1-stage pattern with 2 LR groups
+            match_1stage_2lr = re.search(step_pattern_1stage_2lr, line)
+            if match_1stage_2lr:
+                if is_two_stage is None:
+                    is_two_stage = False
+                    print("Detected 1-stage model format (2 LR groups)")
+
+                step = int(match_1stage_2lr.group(1))
+                total_loss = float(match_1stage_2lr.group(2))
+                ce_loss = float(match_1stage_2lr.group(4))
+                lb_loss = float(match_1stage_2lr.group(5))
+                lb_stage_0 = float(match_1stage_2lr.group(6))
+                grad_norm_str = match_1stage_2lr.group(7)
+                grad_norm = float(grad_norm_str) if grad_norm_str else None
+                lr_group_0 = float(match_1stage_2lr.group(8))
+                lr_group_1 = float(match_1stage_2lr.group(9))
+
+                metrics["steps"].append(step)
+                metrics["total_loss"].append(total_loss)
+                metrics["ce_loss"].append(ce_loss)
+                metrics["lb_loss"].append(lb_loss)
+                metrics["lb_stage_0"].append(lb_stage_0)
+                if grad_norm is not None:
+                    metrics["grad_norm"].append(grad_norm)
+                    metrics["grad_norm_steps"].append(step)
+                metrics["lr_group_0"].append(lr_group_0)
+                metrics["lr_group_1"].append(lr_group_1)
+                # For 2 LR groups, group 2 doesn't exist
                 metrics["perplexity"].append(np.exp(ce_loss))
                 continue
 
@@ -260,10 +291,13 @@ def plot_learning_rates(metrics: Dict[str, List[float]], save_path: str = None):
     """Plot learning rate schedules."""
     fig, ax = plt.subplots(1, 1, figsize=(12, 6))
 
-    # Always plot the first 3 groups (exist in both 1-stage and 2-stage)
+    # Always plot the first 2 groups (exist in all models)
     ax.plot(metrics["steps"], metrics["lr_group_0"], "b-", label="Group 0", alpha=0.7)
     ax.plot(metrics["steps"], metrics["lr_group_1"], "g-", label="Group 1", alpha=0.7)
-    ax.plot(metrics["steps"], metrics["lr_group_2"], "r-", label="Group 2", alpha=0.7)
+
+    # Plot group 2 if it exists (3+ LR group models)
+    if metrics["lr_group_2"]:
+        ax.plot(metrics["steps"], metrics["lr_group_2"], "r-", label="Group 2", alpha=0.7)
 
     # Only plot groups 3 and 4 if they exist (2-stage models)
     if metrics["lr_group_3"]:
@@ -357,7 +391,8 @@ def analyze_metrics(metrics: Dict[str, List[float]]):
     print("\n=== LEARNING RATE ANALYSIS ===")
     print(f"Final LR group 0: {metrics['lr_group_0'][-1]:.2e}")
     print(f"Final LR group 1: {metrics['lr_group_1'][-1]:.2e}")
-    print(f"Final LR group 2: {metrics['lr_group_2'][-1]:.2e}")
+    if metrics["lr_group_2"]:
+        print(f"Final LR group 2: {metrics['lr_group_2'][-1]:.2e}")
     if metrics["lr_group_3"]:
         print(f"Final LR group 3: {metrics['lr_group_3'][-1]:.2e}")
     if metrics["lr_group_4"]:

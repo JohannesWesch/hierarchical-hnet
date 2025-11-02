@@ -2,10 +2,10 @@
 #SBATCH --job-name=hnet-1stage-L
 #SBATCH --partition=gpu_h100_il
 #SBATCH --mem=510000mb
-#SBATCH --time=12:00:00
+#SBATCH --time=48:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=24
 #SBATCH --output=logs/training_1stage_L_%j.out
 #SBATCH --error=logs/training_1stage_L_%j.err
@@ -72,6 +72,7 @@ echo "Starting distributed training with WSD scheduler..."
 
 # Build command with required args
 CMD="srun python scripts/train.py \
+    --distributed \
     --config-path $MODEL_CONFIG \
     --output-dir $OUTPUT_DIR \
     --learning-rate $LEARNING_RATE \
