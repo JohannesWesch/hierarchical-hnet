@@ -14,6 +14,43 @@ from hnet.models.mixer_seq import HNetForCausalLM
 from hnet.utils.tokenizers import ByteTokenizer
 
 
+def safe_input(prompt_text: str) -> str:
+    """
+    Safely read input with Unicode error handling.
+
+    Args:
+        prompt_text: The prompt to display
+
+    Returns:
+        User input as string, or None if an error occurs
+    """
+    # Reconfigure stdin to handle UTF-8 properly
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+
+    try:
+        # Try normal input
+        return input(prompt_text).strip()
+    except UnicodeDecodeError:
+        # If that fails, try with explicit error handling
+        print("\n[Warning: Unicode decoding error, retrying with error replacement...]")
+        try:
+            # Read raw bytes and decode with error handling
+            sys.stdout.write(prompt_text)
+            sys.stdout.flush()
+            line = sys.stdin.buffer.readline()
+            return line.decode("utf-8", errors="replace").strip()
+        except Exception as e:
+            print(f"\n[Error reading input: {e}]")
+            return None
+    except (EOFError, KeyboardInterrupt):
+        # Handle Ctrl+D or Ctrl+C gracefully
+        return None
+    except Exception as e:
+        print(f"\n[Unexpected error reading input: {e}]")
+        return None
+
+
 def load_from_pretrained(model_path: str, model_config_path: str):
     """Load model from pretrained checkpoint.
 
@@ -191,42 +228,68 @@ def main():
 
     tokenizer = ByteTokenizer()
 
+    print("\n" + "=" * 60)
+    print("Interactive Generation Mode")
+    print("Type 'quit' or 'exit' to stop, or press Ctrl+C/Ctrl+D")
+    print("=" * 60)
+
     while True:
-        prompt = input("\nPrompt: ").strip()
+        try:
+            prompt = safe_input("\nPrompt: ")
 
-        if not prompt:
-            continue
+            # Handle input errors or EOF
+            if prompt is None:
+                print("\n\nExiting...")
+                break
 
-        print(
-            f"\nGenerating (max_tokens={args.max_tokens}, temperature={args.temperature}, top_p={args.top_p})"
-        )
+            # Skip empty prompts
+            if not prompt:
+                continue
 
-        print(f"\033[92m{prompt}\033[0m", end="")
-        token_count = 0
-        buf = []
+            # Check for quit commands
+            if prompt.lower() in ["quit", "exit", "q"]:
+                print("Goodbye!")
+                break
 
-        for token in generate(
-            model,
-            prompt,
-            max_tokens=args.max_tokens,
-            temperature=args.temperature,
-            top_p=args.top_p,
-        ):
-            buf.append(token)
-            token_count += 1
+            print(
+                f"\nGenerating (max_tokens={args.max_tokens}, temperature={args.temperature}, top_p={args.top_p})"
+            )
 
-            decoded = None
-            res = None
-            for j in range(1, min(len(buf), 4)):
-                try:
-                    res = tokenizer.decode(buf[:j])
-                    decoded = j
-                except:
-                    pass
+            print(f"\033[92m{prompt}\033[0m", end="")
+            token_count = 0
+            buf = []
 
-            if res is not None:
-                print(res, end="", flush=True)
-                buf = buf[decoded:]
+            for token in generate(
+                model,
+                prompt,
+                max_tokens=args.max_tokens,
+                temperature=args.temperature,
+                top_p=args.top_p,
+            ):
+                buf.append(token)
+                token_count += 1
+
+                decoded = None
+                res = None
+                for j in range(1, min(len(buf), 4)):
+                    try:
+                        res = tokenizer.decode(buf[:j])
+                        decoded = j
+                    except:
+                        pass
+
+                if res is not None:
+                    print(res, end="", flush=True)
+                    buf = buf[decoded:]
+
+            print()  # New line after generation
+
+        except KeyboardInterrupt:
+            print("\n\nInterrupted. Exiting...")
+            break
+        except Exception as e:
+            print(f"\n\nError during generation: {e}")
+            print("You can try again or type 'quit' to exit.")
 
 
 if __name__ == "__main__":
