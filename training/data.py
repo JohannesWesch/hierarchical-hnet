@@ -7,13 +7,17 @@ This module provides:
 - HuggingFaceStreamingDataset: Streaming dataset for HuggingFace datasets
 """
 
+import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 import torch
 from torch.utils.data import Dataset, IterableDataset
 
 from hnet.utils.tokenizers import ByteTokenizer
+
+logger = logging.getLogger(__name__)
 
 
 class PackedDataset(Dataset):
@@ -363,6 +367,7 @@ class HuggingFaceStreamingDataset(IterableDataset):
 
     Designed for large-scale datasets like FineWeb-Edu (100B tokens).
     Inherits from IterableDataset to work properly with PyTorch DataLoader.
+    Includes retry logic to handle transient network failures.
     """
 
     def __init__(
@@ -372,6 +377,8 @@ class HuggingFaceStreamingDataset(IterableDataset):
         text_column: str = "text",
         add_bos: bool = True,
         max_length: Optional[int] = None,
+        max_retries: int = 5,
+        retry_delay: float = 1.0,
     ):
         """
         Initialize HuggingFace streaming dataset.
@@ -382,6 +389,8 @@ class HuggingFaceStreamingDataset(IterableDataset):
             text_column: Name of the text column in the dataset
             add_bos: Whether to add BOS token
             max_length: Maximum length to truncate documents
+            max_retries: Maximum number of retries for transient failures
+            retry_delay: Initial delay between retries (exponential backoff)
         """
         super().__init__()
         self.hf_dataset = hf_dataset
@@ -389,25 +398,72 @@ class HuggingFaceStreamingDataset(IterableDataset):
         self.text_column = text_column
         self.add_bos = add_bos
         self.max_length = max_length
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
 
     def __iter__(self):
-        """Iterate over the dataset."""
-        for example in self.hf_dataset:
-            # Get text from the example
-            text = example[self.text_column]
+        """Iterate over the dataset with retry logic for transient failures."""
+        retry_count = 0
+        iterator = None
 
-            if not text or not text.strip():
-                continue
+        while retry_count <= self.max_retries:
+            try:
+                # Create or recreate the iterator
+                if iterator is None:
+                    iterator = iter(self.hf_dataset)
 
-            # Tokenize the document
-            encoded = self.tokenizer.encode([text], add_bos=self.add_bos)[0]
-            input_ids = encoded["input_ids"]
+                # Iterate over examples
+                for example in iterator:
+                    # Reset retry count on successful iteration
+                    retry_count = 0
 
-            # Truncate if needed
-            if self.max_length is not None and len(input_ids) > self.max_length:
-                input_ids = input_ids[: self.max_length]
+                    # Get text from the example
+                    text = example[self.text_column]
 
-            yield {"input_ids": input_ids}
+                    if not text or not text.strip():
+                        continue
+
+                    # Tokenize the document
+                    encoded = self.tokenizer.encode([text], add_bos=self.add_bos)[0]
+                    input_ids = encoded["input_ids"]
+
+                    # Truncate if needed
+                    if self.max_length is not None and len(input_ids) > self.max_length:
+                        input_ids = input_ids[: self.max_length]
+
+                    yield {"input_ids": input_ids}
+
+                # Successfully completed iteration
+                break
+
+            except (FileNotFoundError, OSError, ConnectionError, TimeoutError) as e:
+                retry_count += 1
+
+                if retry_count > self.max_retries:
+                    logger.error(
+                        f"Failed to fetch data after {self.max_retries} retries. "
+                        f"Last error: {type(e).__name__}: {e}"
+                    )
+                    raise
+
+                # Calculate delay with exponential backoff
+                delay = self.retry_delay * (2 ** (retry_count - 1))
+
+                logger.warning(
+                    f"Transient error while fetching data: {type(e).__name__}: {e}. "
+                    f"Retrying {retry_count}/{self.max_retries} after {delay:.1f}s..."
+                )
+
+                # Wait before retrying
+                time.sleep(delay)
+
+                # Reset iterator to force reconnection
+                iterator = None
+
+            except Exception as e:
+                # For non-transient errors, log and re-raise immediately
+                logger.error(f"Non-transient error in dataset iteration: {type(e).__name__}: {e}")
+                raise
 
 
 class DistributedIterableDatasetWrapper(IterableDataset):
