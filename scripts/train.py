@@ -12,6 +12,7 @@ This script provides the main training loop for H-Net models, including:
 import argparse
 import json
 import os
+import time
 from typing import Dict, Optional
 
 import torch
@@ -687,6 +688,61 @@ def train(
             logger.info(f"Training complete! Total steps: {step}")
 
 
+def load_dataset_with_retry(dataset_name: str, max_retries: int = 5, **kwargs):
+    """
+    Load a HuggingFace dataset with retry logic for transient network failures.
+
+    Args:
+        dataset_name: Name of the dataset to load
+        max_retries: Maximum number of retry attempts
+        **kwargs: Additional arguments to pass to load_dataset()
+
+    Returns:
+        Loaded dataset
+
+    Raises:
+        Exception: If all retry attempts fail
+    """
+    from datasets import load_dataset
+
+    for attempt in range(max_retries):
+        try:
+            dataset = load_dataset(dataset_name, **kwargs)
+            return dataset
+        except Exception as e:
+            # Check if it's a retryable error
+            error_str = str(e).lower()
+            is_retryable = any(
+                keyword in error_str
+                for keyword in [
+                    "timeout",
+                    "connection",
+                    "network",
+                    "read timed out",
+                    "connectionerror",
+                    "readtimeout",
+                ]
+            )
+
+            if not is_retryable:
+                # Non-retryable error, raise immediately
+                raise
+
+            if attempt < max_retries - 1:
+                # Calculate exponential backoff delay
+                delay = 30 * (2**attempt)  # 30s, 60s, 120s, 240s, 480s
+                print(
+                    f"⚠️  Failed to load dataset (attempt {attempt + 1}/{max_retries}): {type(e).__name__}"
+                )
+                print(f"   Error: {e}")
+                print(f"   Retrying in {delay} seconds...")
+                time.sleep(delay)
+            else:
+                # Final attempt failed
+                print(f"❌ Failed to load dataset after {max_retries} attempts")
+                raise
+
+
 def main():
     """Main entry point for training script."""
     # Parse arguments
@@ -766,7 +822,6 @@ def main():
     # Load FineWeb-Edu dataset from HuggingFace
     if not args.distributed or is_main_process():
         print("Loading FineWeb-Edu dataset from HuggingFace...")
-    from datasets import load_dataset
 
     # Load dataset with proper train/val split (no data leakage)
     if not args.distributed or is_main_process():
@@ -774,7 +829,7 @@ def main():
         print("  - Validation: first 1000 examples")
         print("  - Training: remaining examples (skipping first 1000)")
 
-    base_hf_dataset = load_dataset(
+    base_hf_dataset = load_dataset_with_retry(
         "HuggingFaceFW/fineweb-edu", name="sample-100BT", split="train", streaming=True
     )
 
@@ -824,7 +879,7 @@ def main():
         # Use first 1000 examples for validation (training skips these)
         if not args.distributed or is_main_process():
             print("Creating validation set from first 1000 examples...")
-        val_base_dataset = load_dataset(
+        val_base_dataset = load_dataset_with_retry(
             "HuggingFaceFW/fineweb-edu", name="sample-100BT", split="train", streaming=True
         )
         val_hf_dataset = val_base_dataset.take(1000)
