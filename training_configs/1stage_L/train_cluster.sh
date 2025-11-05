@@ -2,7 +2,7 @@
 #SBATCH --job-name=hnet-1stage-L
 #SBATCH --partition=gpu_h100_il
 #SBATCH --mem=510000mb
-#SBATCH --time=48:00:00
+#SBATCH --time=20:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
