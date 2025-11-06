@@ -12,6 +12,6 @@
   "model_config": "configs/hnet_2stage_XL.json",
   "num_training_steps": 100000,
   "output_dir": "outputs/hnet_2stage_XL",
-  "save_interval": 1000,
+  "save_interval": 10000,
   "warmup_steps": 5000
 }

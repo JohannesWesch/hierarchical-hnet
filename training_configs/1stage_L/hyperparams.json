@@ -27,7 +27,7 @@
   "model_config": "configs/hnet_1stage_L.json",
   "num_training_steps": 200000,
   "output_dir": "outputs/hnet_1stage_L",
-  "save_interval": 1000,
+  "save_interval": 10000,
   "scale_lr_by_world_size": false,
   "stable_ratio": 0.7,
   "warmup_ratio": 0.1,
