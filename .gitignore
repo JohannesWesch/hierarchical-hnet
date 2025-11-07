@@ -203,3 +203,6 @@ logs/
 analysis_output/
 evaluation_results/
 data/
+
+# Pretrained models
+pretrained_models/
