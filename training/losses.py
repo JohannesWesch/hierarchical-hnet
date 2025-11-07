@@ -293,7 +293,7 @@ def compute_token_accuracy(
     return accuracy
 
 
-def get_routing_statistics(
+def compute_routing_stats(
     bpred_outputs: List[RoutingModuleOutput],
     downsampling_factors: Optional[List[float]] = None,
 ) -> Dict[str, torch.Tensor]:
@@ -343,3 +343,11 @@ def get_routing_statistics(
             stats[f"stage_{stage_idx}_G_avg_prob"] = F_s
 
     return stats
+
+
+__all__ = [
+    "LanguageModelingLoss",
+    "HierarchicalLoadBalancingLoss",
+    "CombinedLoss",
+    "compute_routing_stats",
+]

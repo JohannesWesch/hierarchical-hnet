@@ -381,6 +381,7 @@ def compute_loss(
         CombinedLoss,
         HierarchicalLoadBalancingLoss,
         LanguageModelingLoss,
+        compute_routing_stats,
     )
 
     # Create loss functions
@@ -390,6 +391,10 @@ def compute_loss(
 
     # Compute losses
     loss_dict = combined_loss(logits, targets, bpred_outputs)
+
+    # Add router statistics (F, G, compression ratios)
+    router_stats = compute_routing_stats(bpred_outputs, downsampling_factors)
+    loss_dict.update(router_stats)
 
     return loss_dict
 
