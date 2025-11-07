@@ -29,6 +29,8 @@ load_hyperparams() {
     # Load optimizer hyperparameters (with defaults for backward compatibility)
     WEIGHT_DECAY=$(python -c "import json; c=json.load(open('$config_file')); print(c.get('weight_decay', 0.1))")
     LOAD_BALANCING_WEIGHT=$(python -c "import json; c=json.load(open('$config_file')); print(c.get('load_balancing_weight', 0.01))")
+    # Handle downsampling_factors as either JSON array or string
+    DOWNSAMPLING_FACTORS=$(python -c "import json; c=json.load(open('$config_file')); d=c.get('downsampling_factors', None); print(','.join(map(str, d)) if d is not None and isinstance(d, list) else (d if d is not None else 'None'))")
     ADAM_BETA1=$(python -c "import json; c=json.load(open('$config_file')); print(c.get('adam_beta1', 0.9))")
     ADAM_BETA2=$(python -c "import json; c=json.load(open('$config_file')); print(c.get('adam_beta2', 0.95))")
     ADAM_EPS=$(python -c "import json; c=json.load(open('$config_file')); print(c.get('adam_eps', 1e-08))")
@@ -73,6 +75,9 @@ load_hyperparams() {
     echo "Backend: $BACKEND"
     echo "Weight decay: $WEIGHT_DECAY"
     echo "Load balancing weight: $LOAD_BALANCING_WEIGHT"
+    if [ "$DOWNSAMPLING_FACTORS" != "None" ]; then
+        echo "Downsampling factors: $DOWNSAMPLING_FACTORS"
+    fi
     echo "Adam beta1: $ADAM_BETA1"
     echo "Adam beta2: $ADAM_BETA2"
     echo "Adam eps: $ADAM_EPS"

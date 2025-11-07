@@ -2,6 +2,8 @@
 # Run evaluation tasks in parallel across multiple GPUs
 #
 # Usage: sbatch evaluation/run_parallel_tasks.sh MODEL_PATH CONFIG_PATH OUTPUT_DIR
+# sbatch evaluation/run_parallel_tasks.sh outputs/hnet_1stage_L_v1/checkpoint_200000.pt configs/hnet_1stage_L.json evaluation_results/hnet_1stage_L_v1
+# sbatch evaluation/run_parallel_tasks.sh pretrained_models/hnet_1stage_L.pt configs/hnet_1stage_L.json evaluation_results/hnet_1stage_L_pretrained
 
 #SBATCH --partition=gpu_a100_short
 #SBATCH --gres=gpu:4

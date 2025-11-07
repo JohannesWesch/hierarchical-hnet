@@ -146,7 +146,12 @@ class HierarchicalLoadBalancingLoss:
             if self.downsampling_factors is not None and stage_idx < len(self.downsampling_factors):
                 N = self.downsampling_factors[stage_idx]
             else:
-                N = 2.0  # Default
+                # No default: paper explicitly uses [6.0] for 1-stage or [3.0, 3.0] for 2-stage
+                raise ValueError(
+                    f"downsampling_factors must be provided for stage {stage_idx}. "
+                    f"Paper uses [6.0] for 1-stage models ('6-DC') or [3.0, 3.0] for 2-stage models ('(3,3)-DC'). "
+                    f"See Table 1 in the paper."
+                )
 
             # Compute loss for this stage
             stage_loss = lb_loss(router_output, N)
@@ -290,27 +295,51 @@ def compute_token_accuracy(
 
 def get_routing_statistics(
     bpred_outputs: List[RoutingModuleOutput],
+    downsampling_factors: Optional[List[float]] = None,
 ) -> Dict[str, torch.Tensor]:
     """
     Compute statistics about routing decisions.
 
+    This tracks F_s (actual selection rate from hard boundaries) and G_s (average
+    boundary probability) as described in the paper's ratio loss (Eq. 10).
+    During training, F_s and G_s should converge to ~1/N_s where N_s is the target
+    compression ratio.
+
     Args:
         bpred_outputs: List of routing module outputs
+        downsampling_factors: Optional target compression ratios per stage
 
     Returns:
-        Dictionary with routing statistics (boundary rates, etc.)
+        Dictionary with routing statistics (boundary rates, compression ratios, etc.)
     """
     stats = {}
 
     for stage_idx, router_output in enumerate(bpred_outputs):
-        # Prefer boundary_prob when available (gradient-friendly, expected boundary rate)
+        # F_s: actual fraction selected (from hard boundaries, non-differentiable)
+        F_s = router_output.boundary_mask.float().mean()
+        stats[f"stage_{stage_idx}_F_actual_selection"] = F_s
+
+        # G_s: average boundary probability (differentiable)
         if hasattr(router_output, "boundary_prob") and router_output.boundary_prob is not None:
-            boundary_rate = router_output.boundary_prob.mean()
-            stats[f"stage_{stage_idx}_boundary_rate"] = boundary_rate
-            stats[f"stage_{stage_idx}_avg_prob"] = boundary_rate
+            # boundary_prob is (B, L, 2) with [no-boundary, boundary] probs
+            # Extract boundary probability (last channel) matching official implementation
+            tokenized_prob = router_output.boundary_prob[..., -1]
+            G_s = tokenized_prob.float().mean()
+            stats[f"stage_{stage_idx}_G_avg_prob"] = G_s
+
+            # Compute actual compression ratio (1/F_s)
+            actual_compression = 1.0 / (F_s + 1e-8)
+            stats[f"stage_{stage_idx}_actual_compression"] = actual_compression
+
+            # If target is provided, compute target vs actual
+            if downsampling_factors is not None and stage_idx < len(downsampling_factors):
+                target_N = downsampling_factors[stage_idx]
+                stats[f"stage_{stage_idx}_target_compression"] = torch.tensor(
+                    target_N, device=F_s.device
+                )
+                stats[f"stage_{stage_idx}_compression_error"] = actual_compression - target_N
         else:
-            # Fallback to hard mask
-            boundary_rate = router_output.boundary_mask.float().mean()
-            stats[f"stage_{stage_idx}_boundary_rate"] = boundary_rate
+            # Fallback: only hard mask available
+            stats[f"stage_{stage_idx}_G_avg_prob"] = F_s
 
     return stats

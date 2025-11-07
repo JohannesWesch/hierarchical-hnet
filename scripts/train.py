@@ -120,6 +120,12 @@ def parse_args():
         help="Weight for load balancing loss",
     )
     parser.add_argument(
+        "--downsampling-factors",
+        type=str,
+        default=None,
+        help="Downsampling factors for each stage (comma-separated, e.g. '6.0' or '6.0,4.0')",
+    )
+    parser.add_argument(
         "--num-training-steps",
         type=int,
         required=True,
@@ -368,6 +374,7 @@ def compute_loss(
     targets: torch.Tensor,
     bpred_outputs: list,
     load_balancing_weight: float,
+    downsampling_factors: Optional[list[float]] = None,
 ) -> Dict[str, torch.Tensor]:
     """Compute total loss including cross-entropy and load balancing losses."""
     from training.losses import (
@@ -378,7 +385,7 @@ def compute_loss(
 
     # Create loss functions
     lm_loss = LanguageModelingLoss(ignore_index=-100)
-    lb_loss = HierarchicalLoadBalancingLoss()
+    lb_loss = HierarchicalLoadBalancingLoss(downsampling_factors=downsampling_factors)
     combined_loss = CombinedLoss(lm_loss, lb_loss, lb_weight=load_balancing_weight)
 
     # Compute losses
@@ -396,6 +403,7 @@ def train_step(
     load_balancing_weight: float,
     gradient_accumulation_steps: int,
     step: int,
+    downsampling_factors: Optional[list[float]] = None,
 ) -> Dict[str, float]:
     """Perform a single training step."""
     model.train()
@@ -421,7 +429,9 @@ def train_step(
     bpred_outputs = output.bpred_output
 
     # Compute loss
-    loss_dict = compute_loss(logits, targets_2d, bpred_outputs, load_balancing_weight)
+    loss_dict = compute_loss(
+        logits, targets_2d, bpred_outputs, load_balancing_weight, downsampling_factors
+    )
     loss = loss_dict["loss"]
 
     # Backward pass (with gradient accumulation)
@@ -481,6 +491,7 @@ def evaluate(
     val_dataloader: DataLoader,
     device: torch.device,
     load_balancing_weight: float,
+    downsampling_factors: Optional[list[float]] = None,
 ) -> Dict[str, float]:
     """Evaluate model on validation set."""
     model.eval()
@@ -511,7 +522,9 @@ def evaluate(
             bpred_outputs = output.bpred_output
 
             # Compute loss
-            loss_dict = compute_loss(logits, targets_2d, bpred_outputs, load_balancing_weight)
+            loss_dict = compute_loss(
+                logits, targets_2d, bpred_outputs, load_balancing_weight, downsampling_factors
+            )
 
             # Update meters
             loss_meter.update(loss_dict["loss"].item())
@@ -537,6 +550,7 @@ def train(
     args: argparse.Namespace,
     device: torch.device,
     start_step: int = 0,
+    downsampling_factors: Optional[list[float]] = None,
 ):
     """Main training loop."""
     from training.distributed import is_main_process
@@ -593,6 +607,7 @@ def train(
                     args.load_balancing_weight,
                     args.gradient_accumulation_steps,
                     step,
+                    downsampling_factors,
                 )
 
                 step_time = time.time() - step_start
@@ -656,7 +671,11 @@ def train(
                         if logger:
                             logger.info(f"Evaluating at step {step + 1}")
                     val_metrics = evaluate(
-                        model, val_dataloader, device, args.load_balancing_weight
+                        model,
+                        val_dataloader,
+                        device,
+                        args.load_balancing_weight,
+                        downsampling_factors,
                     )
                     if not args.distributed or is_main_process():
                         if logger:
@@ -792,6 +811,13 @@ def main():
     lr_multipliers = [float(x) for x in args.lr_multipliers.split(",")]
     if not args.distributed or is_main_process():
         print(f"LR multipliers: {lr_multipliers}")
+
+    # Parse downsampling factors
+    downsampling_factors = None
+    if args.downsampling_factors is not None:
+        downsampling_factors = [float(x) for x in args.downsampling_factors.split(",")]
+        if not args.distributed or is_main_process():
+            print(f"Downsampling factors: {downsampling_factors}")
 
     # Initialize model
     if not args.distributed or is_main_process():
@@ -994,6 +1020,7 @@ def main():
             args,
             device,
             start_step,
+            downsampling_factors,
         )
     finally:
         # Cleanup distributed training

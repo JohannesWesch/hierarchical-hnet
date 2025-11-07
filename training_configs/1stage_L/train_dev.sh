@@ -49,6 +49,7 @@ CMD="python scripts/train.py \
     --max-grad-norm $MAX_GRAD_NORM \
     --weight-decay $WEIGHT_DECAY \
     --load-balancing-weight $LOAD_BALANCING_WEIGHT \
+    --downsampling-factors $DOWNSAMPLING_FACTORS \
     --adam-beta1 $ADAM_BETA1 \
     --adam-beta2 $ADAM_BETA2 \
     --adam-eps $ADAM_EPS \
