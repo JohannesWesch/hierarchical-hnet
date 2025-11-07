@@ -965,6 +965,16 @@ def main():
         model, effective_lr, args.weight_decay, args.adam_beta1, args.adam_beta2, args.adam_eps
     )
 
+    # Log optimizer parameter groups to verify LR multipliers are applied
+    if not args.distributed or is_main_process():
+        print(f"Optimizer has {len(optimizer.param_groups)} parameter group(s):")
+        for i, pg in enumerate(optimizer.param_groups):
+            n_params = len(pg["params"])
+            lr = pg["lr"]
+            wd = pg.get("weight_decay", 0.0)
+            lr_mult = pg.get("lr_multiplier", 1.0)
+            print(f"  Group {i}: {n_params} params, LR={lr:.2e} (mult={lr_mult:.2f}), WD={wd:.2e}")
+
     # Calculate min_lr_ratio for the scheduler
     min_lr_ratio = args.min_lr / effective_lr
 
