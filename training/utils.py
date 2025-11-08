@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
+from torch.nn.parallel import DistributedDataParallel
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 
@@ -272,8 +273,21 @@ def load_checkpoint(
     # Load checkpoint
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
+    state_dict = checkpoint["model_state_dict"]
+
+    # Handle DistributedDataParallel vs single-GPU checkpoints gracefully
+    is_ddp = isinstance(model, DistributedDataParallel)
+    has_module_prefix = all(key.startswith("module.") for key in state_dict.keys())
+
+    if is_ddp and not has_module_prefix:
+        # Checkpoint saved from single-GPU/non-DDP run -> add module. prefix
+        state_dict = {f"module.{k}": v for k, v in state_dict.items()}
+    elif not is_ddp and has_module_prefix:
+        # Checkpoint saved from DDP run -> strip module. prefix
+        state_dict = {k[len("module.") :]: v for k, v in state_dict.items()}
+
     # Load model state
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model.load_state_dict(state_dict)
 
     # Load optimizer state
     if optimizer is not None and "optimizer_state_dict" in checkpoint:
