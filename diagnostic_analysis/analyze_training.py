@@ -21,13 +21,27 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
     """Parse training log and extract metrics."""
 
     # Pattern for 1-stage models with 2 LR groups
-    step_pattern_1stage_2lr = r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), lb_loss: ([\d.]+), lb_stage_0: ([\d.]+)(?:, grad_norm: ([\d.]+))? \| LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+)"
+    step_pattern_1stage_2lr = (
+        r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), "
+        r"lb_loss: ([\d.]+), lb_stage_0: ([\d.]+)(?:, [^|]+?)* \| "
+        r"LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+)"
+    )
 
     # Pattern for 1-stage models with 3 LR groups
-    step_pattern_1stage_3lr = r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), lb_loss: ([\d.]+), lb_stage_0: ([\d.]+)(?:, grad_norm: ([\d.]+))? \| LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+), group_2: ([\d.e-]+)"
+    step_pattern_1stage_3lr = (
+        r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), "
+        r"lb_loss: ([\d.]+), lb_stage_0: ([\d.]+)(?:, [^|]+?)* \| "
+        r"LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+), group_2: ([\d.e-]+)"
+    )
 
     # Pattern for 2-stage models (5 LR groups, 2 stages)
-    step_pattern_2stage = r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), lb_loss: ([\d.]+), lb_stage_0: ([\d.]+), lb_stage_1: ([\d.]+)(?:, grad_norm: ([\d.]+))? \| LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+), group_2: ([\d.e-]+), group_3: ([\d.e-]+), group_4: ([\d.e-]+)"
+    step_pattern_2stage = (
+        r"Step (\d+) \| Loss: ([\d.]+) \| loss: ([\d.]+), ce_loss: ([\d.]+), "
+        r"lb_loss: ([\d.]+), lb_stage_0: ([\d.]+), lb_stage_1: ([\d.]+)"
+        r"(?:, [^|]+?)* \| "
+        r"LR: group_0: ([\d.e-]+), group_1: ([\d.e-]+), group_2: ([\d.e-]+), "
+        r"group_3: ([\d.e-]+), group_4: ([\d.e-]+)"
+    )
 
     # Pattern to match validation lines
     val_pattern = r"Validation metrics: \{'val_loss': ([\d.]+), 'val_ce_loss': ([\d.]+), 'val_lb_loss': ([\d.]+), 'val_perplexity': ([\d.]+)\}"
@@ -55,6 +69,16 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
         "val_ce_loss": [],
         "val_lb_loss": [],
         "val_perplexity": [],
+        "stage_0_F": [],
+        "stage_0_G": [],
+        "stage_0_actual_compression": [],
+        "stage_0_target_compression": [],
+        "stage_0_compression_error": [],
+        "stage_1_F": [],
+        "stage_1_G": [],
+        "stage_1_actual_compression": [],
+        "stage_1_target_compression": [],
+        "stage_1_compression_error": [],
     }
 
     current_eval_step = None
@@ -80,13 +104,13 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
                 lb_loss = float(match_2stage.group(5))
                 lb_stage_0 = float(match_2stage.group(6))
                 lb_stage_1 = float(match_2stage.group(7))
-                grad_norm_str = match_2stage.group(8)
-                grad_norm = float(grad_norm_str) if grad_norm_str else None
-                lr_group_0 = float(match_2stage.group(9))
-                lr_group_1 = float(match_2stage.group(10))
-                lr_group_2 = float(match_2stage.group(11))
-                lr_group_3 = float(match_2stage.group(12))
-                lr_group_4 = float(match_2stage.group(13))
+                grad_match = re.search(r"grad_norm: ([\d.]+)", line)
+                grad_norm = float(grad_match.group(1)) if grad_match else None
+                lr_group_0 = float(match_2stage.group(8))
+                lr_group_1 = float(match_2stage.group(9))
+                lr_group_2 = float(match_2stage.group(10))
+                lr_group_3 = float(match_2stage.group(11))
+                lr_group_4 = float(match_2stage.group(12))
 
                 metrics["steps"].append(step)
                 metrics["total_loss"].append(total_loss)
@@ -103,6 +127,11 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
                 metrics["lr_group_3"].append(lr_group_3)
                 metrics["lr_group_4"].append(lr_group_4)
                 metrics["perplexity"].append(np.exp(ce_loss))
+                _extract_compression_stats(
+                    line,
+                    metrics,
+                    stage_indices=[0, 1],
+                )
                 continue
 
             # Try 1-stage pattern with 3 LR groups
@@ -117,11 +146,11 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
                 ce_loss = float(match_1stage_3lr.group(4))
                 lb_loss = float(match_1stage_3lr.group(5))
                 lb_stage_0 = float(match_1stage_3lr.group(6))
-                grad_norm_str = match_1stage_3lr.group(7)
-                grad_norm = float(grad_norm_str) if grad_norm_str else None
-                lr_group_0 = float(match_1stage_3lr.group(8))
-                lr_group_1 = float(match_1stage_3lr.group(9))
-                lr_group_2 = float(match_1stage_3lr.group(10))
+                grad_match = re.search(r"grad_norm: ([\d.]+)", line)
+                grad_norm = float(grad_match.group(1)) if grad_match else None
+                lr_group_0 = float(match_1stage_3lr.group(7))
+                lr_group_1 = float(match_1stage_3lr.group(8))
+                lr_group_2 = float(match_1stage_3lr.group(9))
 
                 metrics["steps"].append(step)
                 metrics["total_loss"].append(total_loss)
@@ -135,6 +164,11 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
                 metrics["lr_group_1"].append(lr_group_1)
                 metrics["lr_group_2"].append(lr_group_2)
                 metrics["perplexity"].append(np.exp(ce_loss))
+                _extract_compression_stats(
+                    line,
+                    metrics,
+                    stage_indices=[0],
+                )
                 continue
 
             # Try 1-stage pattern with 2 LR groups
@@ -149,10 +183,10 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
                 ce_loss = float(match_1stage_2lr.group(4))
                 lb_loss = float(match_1stage_2lr.group(5))
                 lb_stage_0 = float(match_1stage_2lr.group(6))
-                grad_norm_str = match_1stage_2lr.group(7)
-                grad_norm = float(grad_norm_str) if grad_norm_str else None
-                lr_group_0 = float(match_1stage_2lr.group(8))
-                lr_group_1 = float(match_1stage_2lr.group(9))
+                grad_match = re.search(r"grad_norm: ([\d.]+)", line)
+                grad_norm = float(grad_match.group(1)) if grad_match else None
+                lr_group_0 = float(match_1stage_2lr.group(7))
+                lr_group_1 = float(match_1stage_2lr.group(8))
 
                 metrics["steps"].append(step)
                 metrics["total_loss"].append(total_loss)
@@ -166,6 +200,11 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
                 metrics["lr_group_1"].append(lr_group_1)
                 # For 2 LR groups, group 2 doesn't exist
                 metrics["perplexity"].append(np.exp(ce_loss))
+                _extract_compression_stats(
+                    line,
+                    metrics,
+                    stage_indices=[0],
+                )
                 continue
 
             # Check for validation metrics
@@ -185,6 +224,33 @@ def parse_training_log(log_path: str) -> Dict[str, List[float]]:
                 current_eval_step = None  # Reset after capturing
 
     return metrics
+
+
+def _extract_compression_stats(
+    line: str,
+    metrics: Dict[str, List[float]],
+    stage_indices: List[int],
+) -> None:
+    """Extract compression statistics per stage if present."""
+    for stage_idx in stage_indices:
+        prefix = f"stage_{stage_idx}_"
+        f_match = re.search(rf"{prefix}F_actual_selection: ([\d.]+)", line)
+        g_match = re.search(rf"{prefix}G_avg_prob: ([\d.]+)", line)
+        actual_match = re.search(rf"{prefix}actual_compression: ([\d.]+)", line)
+        target_match = re.search(rf"{prefix}target_compression: ([\d.]+)", line)
+        error_match = re.search(rf"{prefix}compression_error: ([\-\d.]+)", line)
+
+        metrics[f"{prefix}F"].append(float(f_match.group(1)) if f_match else np.nan)
+        metrics[f"{prefix}G"].append(float(g_match.group(1)) if g_match else np.nan)
+        metrics[f"{prefix}actual_compression"].append(
+            float(actual_match.group(1)) if actual_match else np.nan
+        )
+        metrics[f"{prefix}target_compression"].append(
+            float(target_match.group(1)) if target_match else np.nan
+        )
+        metrics[f"{prefix}compression_error"].append(
+            float(error_match.group(1)) if error_match else np.nan
+        )
 
 
 def plot_loss_curves(metrics: Dict[str, List[float]], save_path: str = None):
@@ -321,6 +387,70 @@ def plot_learning_rates(metrics: Dict[str, List[float]], save_path: str = None):
         plt.show()
 
 
+def _has_valid(values: List[float]) -> bool:
+    arr = np.array(values, dtype=float)
+    return arr.size > 0 and not np.all(np.isnan(arr))
+
+
+def plot_compression_stats(metrics: Dict[str, List[float]], save_path: str = None):
+    """Plot routing compression statistics per stage."""
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+
+    stage0_actual = np.array(metrics["stage_0_actual_compression"])
+    stage0_target = np.array(metrics["stage_0_target_compression"])
+    stage1_actual = np.array(metrics["stage_1_actual_compression"])
+    stage1_target = np.array(metrics["stage_1_target_compression"])
+    steps = np.array(metrics["steps"])
+
+    if stage0_actual.size and not np.all(np.isnan(stage0_actual)):
+        valid = ~np.isnan(stage0_actual)
+        ax.plot(
+            steps[valid],
+            stage0_actual[valid],
+            label="Stage 0 Actual Compression",
+            color="tab:blue",
+        )
+        valid_target = ~np.isnan(stage0_target)
+        ax.plot(
+            steps[valid_target],
+            stage0_target[valid_target],
+            label="Stage 0 Target Compression",
+            color="tab:blue",
+            linestyle="--",
+        )
+
+    if stage1_actual.size and not np.all(np.isnan(stage1_actual)):
+        valid = ~np.isnan(stage1_actual)
+        ax.plot(
+            steps[valid],
+            stage1_actual[valid],
+            label="Stage 1 Actual Compression",
+            color="tab:orange",
+        )
+        valid_target = ~np.isnan(stage1_target)
+        ax.plot(
+            steps[valid_target],
+            stage1_target[valid_target],
+            label="Stage 1 Target Compression",
+            color="tab:orange",
+            linestyle="--",
+        )
+
+    ax.set_xlabel("Training Step")
+    ax.set_ylabel("Compression Ratio")
+    ax.set_title("Compression Targets vs Actual")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"Compression plot saved to {save_path}")
+    else:
+        plt.show()
+
+
 def analyze_metrics(metrics: Dict[str, List[float]]):
     """Analyze and print key metrics."""
     print("=== TRAINING METRICS ANALYSIS ===\n")
@@ -375,6 +505,27 @@ def analyze_metrics(metrics: Dict[str, List[float]]):
     print(f"Stage 0 deviation: {abs(metrics['lb_stage_0'][-1] - 1.0):.4f}")
     if metrics["lb_stage_1"]:
         print(f"Stage 1 deviation: {abs(metrics['lb_stage_1'][-1] - 1.0):.4f}")
+
+    # Compression analysis
+    if _has_valid(metrics["stage_0_actual_compression"]):
+        print("\n=== COMPRESSION ANALYSIS ===")
+        stage0_actual_arr = np.array(metrics["stage_0_actual_compression"], dtype=float)
+        stage0_target_arr = np.array(metrics["stage_0_target_compression"], dtype=float)
+        stage0_actual = stage0_actual_arr[~np.isnan(stage0_actual_arr)][-1]
+        stage0_target = stage0_target_arr[~np.isnan(stage0_target_arr)][-1]
+        print(
+            f"Stage 0 compression: actual={stage0_actual:.2f}, "
+            f"target={stage0_target:.2f}, error={stage0_actual - stage0_target:.2f}"
+        )
+        if _has_valid(metrics["stage_1_actual_compression"]):
+            stage1_actual_arr = np.array(metrics["stage_1_actual_compression"], dtype=float)
+            stage1_target_arr = np.array(metrics["stage_1_target_compression"], dtype=float)
+            stage1_actual = stage1_actual_arr[~np.isnan(stage1_actual_arr)][-1]
+            stage1_target = stage1_target_arr[~np.isnan(stage1_target_arr)][-1]
+            print(
+                f"Stage 1 compression: actual={stage1_actual:.2f}, "
+                f"target={stage1_target:.2f}, error={stage1_actual - stage1_target:.2f}"
+            )
 
     # Gradient analysis
     print("\n=== GRADIENT ANALYSIS ===")
@@ -492,9 +643,12 @@ def main():
     print("\nGenerating plots...")
     loss_plot_path = f"{args.output_dir}/loss_curves.png" if args.save_plots else None
     lr_plot_path = f"{args.output_dir}/learning_rates.png" if args.save_plots else None
+    compression_plot_path = f"{args.output_dir}/compression.png" if args.save_plots else None
 
     plot_loss_curves(metrics, loss_plot_path)
     plot_learning_rates(metrics, lr_plot_path)
+    if _has_valid(metrics["stage_0_actual_compression"]):
+        plot_compression_stats(metrics, compression_plot_path)
 
     print("\nAnalysis complete!")
 
