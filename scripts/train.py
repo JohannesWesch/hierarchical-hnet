@@ -453,6 +453,14 @@ def train_step(
     for stage_name, stage_loss in loss_dict["lb_losses_per_stage"].items():
         metrics[f"lb_{stage_name}"] = stage_loss.item()
 
+    # Include routing statistics (compression ratios, selection rates)
+    for key, value in loss_dict.items():
+        if key.startswith("stage_"):
+            if isinstance(value, torch.Tensor):
+                metrics[key] = value.item()
+            elif isinstance(value, (int, float)):
+                metrics[key] = float(value)
+
     # Optimizer step every gradient_accumulation_steps
     if (step + 1) % gradient_accumulation_steps == 0:
         # Compute gradient norm BEFORE clipping

@@ -2,7 +2,7 @@
 #SBATCH --job-name=hnet-1stage-L
 #SBATCH --partition=gpu_h100_il
 #SBATCH --mem=510000mb
-#SBATCH --time=20:00:00
+#SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
@@ -109,6 +109,18 @@ if [ "$DECAY_RATIO" != "None" ]; then
 fi
 if [ "$DECAY_TYPE" != "None" ]; then
     CMD="$CMD --decay-type $DECAY_TYPE"
+fi
+
+# Automatically resume from latest checkpoint if available
+LATEST_CKPT=$(
+    find "$OUTPUT_DIR" -maxdepth 1 -type f -name 'checkpoint_*.pt' -printf '%T@ %p\n' 2>/dev/null \
+        | sort -nr \
+        | head -n 1 \
+        | cut -d' ' -f2-
+)
+if [ -n "$LATEST_CKPT" ]; then
+    echo "Resuming from checkpoint: $LATEST_CKPT"
+    CMD="$CMD --resume-from $LATEST_CKPT"
 fi
 
 # Add optional parameters if set
