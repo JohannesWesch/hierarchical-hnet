@@ -16,7 +16,7 @@
   "gradient_accumulation_steps": 8,
   "label_smoothing": 0.0,
   "learning_rate": 0.000625,
-  "load_balancing_weight": 0.03,
+  "load_balancing_weight": 0.005,
   "log_interval": 10,
   "lr_multipliers": [
     2.0,
@@ -30,7 +30,7 @@
   "model_config": "configs/hnet_1stage_L.json",
   "num_training_steps": 400000,
   "output_dir": "outputs/hnet_1stage_L",
-  "save_interval": 10000,
+  "save_interval": 20000,
   "scale_lr_by_world_size": false,
   "stable_ratio": 0.7,
   "warmup_ratio": 0.1,
