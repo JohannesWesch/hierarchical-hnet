@@ -10,14 +10,12 @@
     3.0,
     3.0
   ],
-  "dropout": 0.1,
   "dtype": "bfloat16",
-  "ema_decay": 0.999,
   "eval_interval": 1000,
   "gradient_accumulation_steps": 8,
   "label_smoothing": 0.0,
   "learning_rate": 0.000625,
-  "load_balancing_weight": 0.005,
+  "load_balancing_weight": 0.03,
   "log_interval": 10,
   "lr_multipliers": [
     2.0,
